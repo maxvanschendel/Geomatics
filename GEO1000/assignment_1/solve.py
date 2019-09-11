@@ -1,6 +1,6 @@
 # GEO1000 - Assignment 1
-# Authors:
-# Studentnumbers:
+# Authors: Max van Schendel
+# Studentnumbers: 4384644
 
 from math import sqrt
 
