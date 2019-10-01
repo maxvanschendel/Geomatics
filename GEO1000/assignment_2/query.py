@@ -1,6 +1,6 @@
 # GEO1000 - Assignment 2
-# Authors:
-# Studentnumbers:
+# Authors: Max van Schendel
+# Studentnumbers: 4384644
 
 
 from nominatim import nominatim
@@ -36,7 +36,33 @@ Enter place 2?
 Bye bye.
 
     """
-    pass
+    print("I will find the distance for you between 2 places.")
+
+    running = True
+    while running:
+        print("Enter place 1? ", end='')
+        place1 = input()
+        print("Enter place 2? ", end='')
+        place2 = input()
+
+        if place1 == 'quit' or place2 == 'quit':
+            print('Bye bye.')
+            running = False
+
+        else:
+            place1_coords = nominatim(place1)
+            place2_coords = nominatim(place2)
+
+            if not place1_coords:
+                print("I did not understand this place: {}".format(place1))
+
+            if not place2_coords:
+                print("I did not understand this place: {}".format(place2))
+
+            else:
+                print('Coordinates for {}:'.format(place1), format_dd_as_dms(place1_coords))
+                print('Coordinates for {}:'.format(place2), format_dd_as_dms(place2_coords))
+                print('The distance between {} and {} is {} km'.format(place1, place2, round(haversin(place1_coords, place2_coords),1)))
 
 
 if __name__ == "__main__":
