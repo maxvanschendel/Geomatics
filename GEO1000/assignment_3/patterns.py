@@ -73,21 +73,25 @@ def pattern_b(l, c, size, ratio, file_nm):
     Returns:
         None
     """
-    if l == 0:
-        p1 = (c[0] - size, c[1] - size)
-        p2 = (c[0] + size, c[1] - size)
-        p3 = (c[0] + size, c[1] + size)
-        p4 = (c[0] - size, c[1] + size)
 
-        with open(file_nm, 'a') as out_file:
-            text = wkt(p1, p2, p3, p4)
-            out_file.write(str(text) + '\n')
+    p1 = (c[0] - size, c[1] - size)
+    p2 = (c[0] + size, c[1] - size)
+    p3 = (c[0] + size, c[1] + size)
+    p4 = (c[0] - size, c[1] + size)
+    text = wkt(p1, p2, p3, p4)
+
+    if l == 0:
+        return None
 
     else:
-        p1 = (c[0] - size, c[1] - size)
-        p2 = (c[0] + size, c[1] - size)
-        p3 = (c[0] + size, c[1] + size)
-        p4 = (c[0] - size, c[1] + size)
+        with open(file_nm, 'r') as out_file:
+            lines = out_file.read().splitlines()
+            lines = list(reversed(lines))
+            lines.append(text)
+
+            with open(file_nm, 'w') as out_file:
+                for i in reversed(lines):
+                    out_file.write(i + '\n')
 
         return [pattern_b(l - 1, p1, size / ratio, ratio, file_nm),
                 pattern_b(l - 1, p2, size / ratio, ratio, file_nm),
@@ -111,7 +115,7 @@ def pattern_c(l, c, size, ratio, file_nm):
     pass
 
 
-def main(n=1, c=(0.0, 0.0), size=10.0, ratio=2.2):
+def main(n=5, c=(0.0, 0.0), size=10.0, ratio=2.2):
     """The starting point of this program. 
     Writes for every output file the first line and allows
     to influence how the resulting set of squares look.
@@ -125,11 +129,19 @@ def main(n=1, c=(0.0, 0.0), size=10.0, ratio=2.2):
     """
     funcs = [pattern_a, pattern_b, pattern_c]
     file_nms = ['pattern_a.txt', 'pattern_b.txt', 'pattern_c.txt']
-    for func, file_nm_out in zip(funcs, file_nms):
-        with open(file_nm_out, 'w+') as text_file:
-            text_file.write('geometry\n')
 
+    for func, file_nm_out in zip(funcs, file_nms):
         func(n, c, size, ratio, file_nm_out)
+
+        with open(file_nm_out, 'r+') as text_file:
+            lines = list(reversed(text_file.readlines()))
+            lines.append('geometry\n')
+            lines = list(reversed(lines))
+
+        with open(file_nm_out, 'w') as text_file:
+            for i in lines:
+                text_file.write(i)
+
 
 
 if __name__ == "__main__":

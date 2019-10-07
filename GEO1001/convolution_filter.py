@@ -3,11 +3,12 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
+# kernel object
 class Kernel:
     def __init__(self):
-        self.operation = np.array([[1, 1, 1],
-                                   [0, 0, 0],
-                                   [-1, -1, -1]])
+        self.operation = np.array([[1, 2, 1],
+                                   [2, 4, 2],
+                                   [1, 2, 1]])
 
         self.x_buf = self.operation.shape[0] - 2
         self.y_buf = self.operation.shape[1] - 2
@@ -22,18 +23,21 @@ class Kernel:
         self.pos[1] += 1
 
     def apply_operation(self, values):
-        return (values * self.operation).sum()
+        return (values * self.operation / 16).sum()
 
 
-def load_image(fn) :
-    img = Image.open(fn).convert('L').resize((250, 250))
+# load image to numpy array
+def load_image(fn):
+    img = Image.open(fn).convert('L').resize((50, 50))
     img.load()
     data = np.asarray( img, dtype="int32")
     return data
 
 
+# move kernel across image, applying filter at every step
+# outputs to new image
 def run_conv_filter(input_file):
-    img = load_image(input_file)
+
     shape = img.shape
 
     k = Kernel()
@@ -47,10 +51,10 @@ def run_conv_filter(input_file):
         if k.pos[0] == shape[0] - k.x_buf:
             k.move_row()
 
-        print(k.pos)
-
     plt.imshow(output_image, interpolation='nearest', cmap='gray')
     plt.show()
 
+
+img = load_image(input_file)
 
 run_conv_filter('./apple.jpg')
