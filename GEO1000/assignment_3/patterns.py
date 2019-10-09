@@ -84,7 +84,7 @@ def pattern_b(l, c, size, ratio, file_nm):
         return None
 
     else:
-        with open(file_nm, 'r') as out_file:
+        with open('./'+file_nm, 'r+') as out_file:
             lines = out_file.read().splitlines()
             lines = list(reversed(lines))
             lines.append(text)
@@ -112,7 +112,25 @@ def pattern_c(l, c, size, ratio, file_nm):
     Returns:
         None
     """
-    pass
+    p1 = (c[0] - size, c[1] - size)
+    p2 = (c[0] + size, c[1] - size)
+    p3 = (c[0] + size, c[1] + size)
+    p4 = (c[0] - size, c[1] + size)
+    text = wkt(p1, p2, p3, p4)
+
+    if l == 0:
+        return None
+
+    else:
+        file = open(file_nm, 'a')
+        file.write(text + '\n')
+
+        for p in [p3, p4]:
+            pattern_c(l-1, p, size/ratio, ratio, file_nm)
+
+        for p in [p1, p2]:
+            file.close()
+            pattern_c(l-1, p, size/ratio, ratio, file_nm)
 
 
 def main(n=5, c=(0.0, 0.0), size=10.0, ratio=2.2):
@@ -131,6 +149,8 @@ def main(n=5, c=(0.0, 0.0), size=10.0, ratio=2.2):
     file_nms = ['pattern_a.txt', 'pattern_b.txt', 'pattern_c.txt']
 
     for func, file_nm_out in zip(funcs, file_nms):
+        with open(file_nm_out, 'w+') as text_file:
+            pass
         func(n, c, size, ratio, file_nm_out)
 
         with open(file_nm_out, 'r+') as text_file:
