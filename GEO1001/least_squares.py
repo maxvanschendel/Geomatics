@@ -3,11 +3,11 @@ import numpy as np
 
 
 # construct design matrix from linearized polynomial and measurements
-def design_matrix(xn, yn):
-    dm = np.empty(shape=(len(xn), 6))
+def design_matrix(x, y):
+    dm = np.empty(shape=(len(x), 6))
 
-    for i in range(len(xn)):
-        dm[i] = [1, xn[i], yn[i], xn[i] * yn[i], xn[i] ** 2, yn[i] ** 2]
+    for i in range(len(x)):
+        dm[i] = [1, x[i], y[i], x[i] * y[i], x[i] ** 2, y[i] ** 2]
 
     return dm
 
@@ -25,6 +25,3 @@ def least_squares_adjustment(x, y, z):
 df = pd.read_excel('./DEM values LSA and RMSE Assignment 1920.xlsx')
 x, y, z = df["x [m]"].tolist(), df["y [m]"].tolist(), df["h(x,y) [m]"].tolist()
 parameters = least_squares_adjustment(x, y, z)
-
-
-
