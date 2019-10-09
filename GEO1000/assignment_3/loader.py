@@ -39,12 +39,26 @@ def read_payloads(filenm):
         A list with tuples:
         [(timestamp:str, payload:str, padding:int), ...]
     """
-    pass
+    with open(filenm) as text_file:
+        messages = text_file.readlines()
+
+    timestamps = [i.split('\t')[0] for i in messages]
+
+    raw_messages = [i.split('\t')[1] for i in messages]
+
+    payloads = []
+    paddings = []
+    for i in raw_messages:
+
+    padding = [i[-5] for i in messages]
+    payload = [i[27:-6] for i in messages]
+
+    return list(zip(timestamps, payload, padding))
 
 
 def _test():
     # use this function to test your implementation
-    pass
+    print(read_payloads('aislog.txt'))
 
 
 if __name__ == "__main__":

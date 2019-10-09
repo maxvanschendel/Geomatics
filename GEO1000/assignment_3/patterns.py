@@ -112,18 +112,16 @@ def pattern_c(l, c, size, ratio, file_nm):
     Returns:
         None
     """
-    p1 = (c[0] - size, c[1] - size)
-    p2 = (c[0] + size, c[1] - size)
-    p3 = (c[0] + size, c[1] + size)
-    p4 = (c[0] - size, c[1] + size)
-    text = wkt(p1, p2, p3, p4)
+
+    p1, p2, p3, p4 = (c[0] - size, c[1] - size), (c[0] + size, c[1] - size), \
+                     (c[0] + size, c[1] + size), (c[0] - size, c[1] + size)
 
     if l == 0:
         return None
 
     else:
         file = open(file_nm, 'a')
-        file.write(text + '\n')
+        file.write(wkt(p1, p2, p3, p4) + '\n')
 
         for p in [p3, p4]:
             pattern_c(l-1, p, size/ratio, ratio, file_nm)
@@ -161,7 +159,6 @@ def main(n=5, c=(0.0, 0.0), size=10.0, ratio=2.2):
         with open(file_nm_out, 'w') as text_file:
             for i in lines:
                 text_file.write(i)
-
 
 
 if __name__ == "__main__":
