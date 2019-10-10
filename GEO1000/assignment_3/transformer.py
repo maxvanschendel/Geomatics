@@ -16,7 +16,7 @@ def as_timestamp_bitlist(lst):
         list with tuples
     """
 
-    return [(i[0], BitList(i[1], i[2])) for i in lst]
+    return [(i[0], BitList(i[1], int(i[2]))) for i in lst]
 
 
 def as_dicts(lst):
@@ -32,7 +32,13 @@ def as_dicts(lst):
     Returns:
         list with tuples
     """
-    pass
+
+    dict_list = []
+    for i in lst:
+        i_dict = decode_msg_dict(i[0], i[1])
+        dict_list.append(postprocess_msg_dict(i_dict))
+
+    return dict_list
 
 
 def decode_msg_dict(timestamp, bitlist):
@@ -49,7 +55,23 @@ def decode_msg_dict(timestamp, bitlist):
 
     **Note, values of the fields are all (signed or unsigned) integers!**
     """
-    pass
+
+    return {'timestamp': timestamp,
+            'msgtype': bitlist.ubits(0,6),
+            'repeat': bitlist.ubits(6,2),
+            'mmsi': bitlist.ubits(8, 30),
+            'status': bitlist.ubits(38, 4),
+            'turn': bitlist.sbits(42, 8),
+            'speed': bitlist.ubits(50, 10),
+            'accuracy': bitlist.ubits(60, 1),
+            'lon': bitlist.sbits(61, 28),
+            'lat': bitlist.sbits(89, 27),
+            'course': bitlist.ubits(116, 12),
+            'heading': bitlist.ubits(128, 9),
+            'second': bitlist.ubits(137, 6),
+            'maneuver': bitlist.ubits(143, 2),
+            'raim': bitlist.ubits(148, 1),
+            'radio': bitlist.ubits(149, 19)}
 
 
 def postprocess_msg_dict(msg):
@@ -66,7 +88,15 @@ def postprocess_msg_dict(msg):
     Returns:
         None
     """
-    pass
+
+    msg['speed'] = div10(msg['speed'])
+    msg['course'] = div10(msg['speed'])
+    msg['heading'] = div10(msg['speed'])
+
+    msg['lon'] = geo(msg['lon'])
+    msg['lat'] = geo(msg['lat'])
+
+    return msg
 
 
 def div10(field):
@@ -85,7 +115,9 @@ def geo(field):
 
 def _test():
     # use this function to test your implementation
-    pass
+    lst = [('2017-07-21Z06:15:01.460400', '!AIVDM,1,1,,B,13aDpUwP0p0CKk>Me409w?v42<?Q', '0'), ('2017-07-21Z06:15:16.207722', '!AIVDM,1,1,,A,13aDpUgP000CMS0Me8fP<OvP289N', '0')]
+    ts = as_timestamp_bitlist(lst)
+    print(as_dicts(ts))
 
 
 if __name__ == "__main__":

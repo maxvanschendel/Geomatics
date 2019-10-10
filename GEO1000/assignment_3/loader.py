@@ -22,6 +22,7 @@ def get_payload(raw_msg):
     Returns:
         tuple (payload:str, padding:int)
     """
+
     return raw_msg[:-6], raw_msg[-5]
 
 
