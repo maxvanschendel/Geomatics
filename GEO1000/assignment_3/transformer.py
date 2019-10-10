@@ -15,7 +15,8 @@ def as_timestamp_bitlist(lst):
     Returns:
         list with tuples
     """
-    pass
+
+    return [(i[0], BitList(i[1], i[2])) for i in lst]
 
 
 def as_dicts(lst):
