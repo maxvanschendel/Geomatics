@@ -13,7 +13,18 @@ def write_tsv(lst, filenm_out):
         filenm_out: string specifying name of the file to use for output
 
     """
-    pass
+    with open(filenm_out, 'a+') as f:
+        f.write('timestamp\tmsgtype\trepeat\tmmsi\tstatus\tturn\tspeed\taccuracy\tlon\tlat\tcourse\theading\tsecond\tmaneuver\traim\tradio\n')
+        for i in lst:
+            for k in i.keys():
+                f.write(str(i[k]) + '\t')
+
+            f.write('\n')
+
+
+
+
+
 
 
 def _test():

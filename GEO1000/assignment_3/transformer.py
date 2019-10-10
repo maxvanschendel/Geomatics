@@ -93,8 +93,10 @@ def postprocess_msg_dict(msg):
     msg['course'] = div10(msg['speed'])
     msg['heading'] = div10(msg['speed'])
 
+
     msg['lon'] = geo(msg['lon'])
     msg['lat'] = geo(msg['lat'])
+    print(msg['lon'], msg['lat'])
 
     return msg
 
@@ -115,9 +117,7 @@ def geo(field):
 
 def _test():
     # use this function to test your implementation
-    lst = [('2017-07-21Z06:15:01.460400', '!AIVDM,1,1,,B,13aDpUwP0p0CKk>Me409w?v42<?Q', '0'), ('2017-07-21Z06:15:16.207722', '!AIVDM,1,1,,A,13aDpUgP000CMS0Me8fP<OvP289N', '0')]
-    ts = as_timestamp_bitlist(lst)
-    print(as_dicts(ts))
+    pass
 
 
 if __name__ == "__main__":
