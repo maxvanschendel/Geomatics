@@ -90,13 +90,11 @@ def postprocess_msg_dict(msg):
     """
 
     msg['speed'] = div10(msg['speed'])
-    msg['course'] = div10(msg['speed'])
-    msg['heading'] = div10(msg['speed'])
-
+    msg['course'] = div10(msg['course'])
+    msg['heading'] = div10(msg['heading'])
 
     msg['lon'] = geo(msg['lon'])
     msg['lat'] = geo(msg['lat'])
-    print(msg['lon'], msg['lat'])
 
     return msg
 

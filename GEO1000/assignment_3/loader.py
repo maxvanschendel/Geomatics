@@ -23,7 +23,7 @@ def get_payload(raw_msg):
         tuple (payload:str, padding:int)
     """
 
-    return raw_msg[:-6], raw_msg[-5]
+    return raw_msg[14:-6], raw_msg[-5]
 
 
 def read_payloads(filenm):
