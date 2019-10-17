@@ -122,7 +122,3 @@ if __name__ == "__main__":
     # construct a list of bits based on the payload and padding
     bitlist = BitList(payload, padding)
 
-    # print its contents
-    print bitlist
-    # get the 6 bits starting at position 0 as an unsigned integer
-    print bitlist.ubits(0, 6)

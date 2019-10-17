@@ -22,7 +22,8 @@ def get_payload(raw_msg):
     Returns:
         tuple (payload:str, padding:int)
     """
-    pass
+
+    return raw_msg[14:-6], raw_msg[-5]
 
 
 def read_payloads(filenm):
@@ -42,18 +43,15 @@ def read_payloads(filenm):
     with open(filenm) as text_file:
         messages = text_file.readlines()
 
-    timestamps = [i.split('\t')[0] for i in messages]
+    out = []
 
-    raw_messages = [i.split('\t')[1] for i in messages]
+    for i in messages:
+        msg_split = i.split('\t')
+        stamp = msg_split[0]
+        pay, pad = get_payload(msg_split[1])[0], get_payload(msg_split[1])[1]
+        out.append((stamp, pay, pad))
 
-    payloads = []
-    paddings = []
-    for i in raw_messages:
-
-    padding = [i[-5] for i in messages]
-    payload = [i[27:-6] for i in messages]
-
-    return list(zip(timestamps, payload, padding))
+    return out
 
 
 def _test():
