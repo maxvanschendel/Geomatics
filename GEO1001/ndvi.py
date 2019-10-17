@@ -1,7 +1,7 @@
 import numpy as np
 from PIL import Image
 from matplotlib import pyplot as plt
-import time
+
 
 
 # load image to numpy array
@@ -19,9 +19,18 @@ def plot(ar, cmap):
     plt.show()
 
 
+# displays numpy array as image
+def save(ar, cmap, fn):
+    plt.imshow(ar, cmap)
+    plt.savefig(fn)
+
+
 # calculate normalized difference vegetation index (ndvi)
 def calculate_ndvi(red, nir):
-    return (nir - red) / (nir + red)
+    try:
+        return (nir - red) / (nir + red)
+    except ZeroDivisionError:
+        return 0
 
 
 # checks if x is between a and b
@@ -75,22 +84,17 @@ def generate_masks(classified):
 # global data can be obtained from SentinelHub
 if __name__ == '__main__':
     # load images to numpy array
-    rgb_image = load_image('.\\satellite_images\\rgb.tif')
-    infrared_image = load_image('.\\satellite_images\\nir.tif')
+    rgb_image = load_image('.\\satellite_images\\sentinel2_red.tif')
+    infrared_image = load_image('.\\satellite_images\\sentinel2_nir.tif')
 
     # extract red and nir channels from images
-    red = rgb_image[:, :, 0]
-    nir = infrared_image[:, :, 0]
-
-    start_time = time.time()
+    red = rgb_image#[:, :, 0]
+    nir = infrared_image#[:, :, 0]
 
     # classify land use and generate masks for each class
     classified_ndvi = classify_image(red, nir)
     landuse_masks = generate_masks(classified_ndvi)
 
-    # evaluate performance
-    run_time = time.time() - start_time
-    print('time: {}\npixels: {}\npps: {}'.format(run_time, red.size, int(red.size / run_time)))
-
     # display mask
+    plot(classified_ndvi, cmap='viridis')
     plot(landuse_masks['built'], cmap='Greys')
