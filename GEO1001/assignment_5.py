@@ -72,10 +72,16 @@ def mv_cov_covinv(ar1, ar2):
             'inverse covariance matrix': covariance_matrix_inv}
 
 
+def minimum_distance_to_mean(vec, means):
+    print(vec)
+    return np.argmin([np.linalg.norm(vec-i) for i in means]) + 1
+
+
+
 if __name__ == '__main__':
     ### assignment 1
     fn = './Multispectral Classification.xlsx'
-    nir, red= load_multispectral_data(fn)[0], load_multispectral_data(fn)[1]
+    nir, red = load_multispectral_data(fn)[0], load_multispectral_data(fn)[1]
     ndvi = calculate_ndvi(nir, red)
     plot_histogram(ndvi, 0.2, 'histogram.jpg')
 
@@ -103,10 +109,18 @@ if __name__ == '__main__':
 
 
     ### assignment 5
-    # combine two arrays into vectors of observation
+    # compute mean vector, covariance matrix and inverse of covariance matrix
     water_stats = mv_cov_covinv(red[~water_mask], nir[~water_mask])
     bg_stats = mv_cov_covinv(red[~bg_mask], nir[~bg_mask])
     veg_stats = mv_cov_covinv(red[~veg_mask], nir[~veg_mask])
+
+    ### assignment 6
+    obs_vecs = np.array((red, nir)).T
+    means = (veg_stats['mean vector'], bg_stats['mean vector'], water_stats['mean vector'])
+
+    np.vectorize(minimum_distance_to_mean, excluded='means')(obs_vecs, means)
+
+
 
 
 
