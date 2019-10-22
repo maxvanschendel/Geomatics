@@ -30,7 +30,7 @@ class Point(object):
 
         Returns True/False
         """
-        # Your implementation here
+
         return (self.x, self.y) == (other.x, other.y)
 
     def distance(self, other):
@@ -40,9 +40,8 @@ class Point(object):
         :param other: the point to compute the distance to
         :type other: Point
         """
-        # Your implementation here
 
-        return math.sqrt((self.x - other.x)**2 - (self.y - other.y)**2)
+        return math.sqrt((self.x - other.x)**2 + (self.y - other.y)**2)
 
 
 class Circle(object):
@@ -73,20 +72,20 @@ class Circle(object):
         Note that we consider points that are near to the boundary of the 
         circle also to be covered by the circle(arbitrary epsilon to use: 1e-8).
         """
-        # Your implementation here
+
         epsilon = 10**-8
-        return (pt.x - self.center[0])**2 + (pt.y - self.center[1])**2 <= self.radius**2. + epsilon
+        return (pt.x - self.center.x)**2 + (pt.y - self.center.y)**2 <= self.radius**2. + epsilon
 
     def area(self):
         """Returns area as float of this circle
         """
-        # Your implementation here
+
         return math.pi*self.radius**2
 
     def perimeter(self):
         """Returns perimeter as float of this circle
         """
-        # Your implementation here
+
         return 2*math.pi*self.radius
 
 
@@ -108,18 +107,35 @@ class Triangle(object):
     def circumcircle(self):
         """Returns Circle instance that intersects the 3 points of the triangle.
         """
-        # Your implementation here
-        pass
+
+        a = self.p0
+        b = self.p1
+        c = self.p2
+
+        d = 2*(a.x*(b.y - c.y) + b.x*(c.y-a.y) + c.x*(a.y-b.y))
+        ux = ((a.x**2 + a.y**2)*(b.y-c.y) + (b.x**2 + b.y**2)*(c.y-a.y) + (c.x**2 + c.y**2)*(a.y-b.y))/d
+        uy = ((a.x**2 + a.y**2)*(c.x-b.x) + (b.x**2 + b.y**2)*(a.x-c.x) + (c.x**2 + c.y**2)*(b.x-a.x))/d
+
+        center = Point(ux, uy)
+        radius = a.distance(center)
+
+        return Circle(center, radius)
 
     def area(self):
         """Area of this triangle, using Heron's formula."""
-        # Your implementation here
-        pass
+
+        a = self.p0.distance(self.p1)
+        b = self.p1.distance(self.p2)
+        c = self.p2.distance(self.p0)
+
+        s = (a+b+c)/2
+
+        return math.sqrt(s*(s-a)*(s-b)*(s-c))
 
     def perimeter(self):
         """Perimeter of this triangle (float)"""
-        # Your implementation here
-        pass
+
+        return self.p0.distance(self.p1) + self.p1.distance(self.p2) + self.p2.distance(self.p0)
 
 
 class DelaunayTriangulation(object):
@@ -143,7 +159,11 @@ class DelaunayTriangulation(object):
         # pre-condition: we should have at least 3 points
         assert len(self.points) > 2
         # Your implementation here
-        pass
+
+        for i in group3(len(self.points)):
+            tri = Triangle(self.points[i[0]], self.points[i[1]], self.points[i[2]])
+            if self.is_delaunay(tri):
+                self.triangles.append(tri)
 
     def is_delaunay(self, tri):
         """Does a triangle *tri* conform to the Delaunay criterion?
@@ -166,8 +186,15 @@ class DelaunayTriangulation(object):
         Returns:
             True/False
         """
-        # Your implementation here
-        pass
+
+        if self.are_collinear(tri.p0, tri.p1, tri.p2):
+            return False
+        else:
+            cc = tri.circumcircle()
+            if sum([cc.covers(i) for i in self.points]) == 3:
+                return True
+            else:
+                return False
 
     def are_collinear(self, pa, pb, pc):
         """Orientation test to determine whether 3 points are collinear
@@ -178,8 +205,8 @@ class DelaunayTriangulation(object):
 
         Returns True / False
         """
-        # Your implementation here
-        pass
+
+        return (pa.x - pc.x)*(pb.y - pc.y) - (pb.x - pc.x)*(pa.y - pc.y) < 10**-8
 
     def output_points(self, open_file_obj):
         """Outputs the points of the triangulation to an open file.
@@ -259,9 +286,10 @@ def main(n):
 
 def _test():
     # If you want, you can write tests in this function
-    rand_points = make_random_points(100)
-    assert(len(rand_points) == 100)
+    main(5000)
+    print('a')
 
 
 if __name__ == "__main__":
     main(5)
+    print('a')
