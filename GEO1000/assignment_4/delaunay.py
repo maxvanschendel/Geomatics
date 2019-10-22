@@ -212,20 +212,32 @@ class DelaunayTriangulation(object):
         """Outputs the points of the triangulation to an open file.
         """
         # Your implementation here
-        pass
+        open_file_obj.write('wkt\n')
+
+        for i in self.points:
+            open_file_obj.write(i.__str__() + '\n')
 
     def output_triangles(self, open_file_obj):
         """Outputs the triangles of the triangulation to an open file.
         """
-        # Your implementation here
-        pass
+        open_file_obj.write('wkt\ttid\tarea\tperimeter\n')
+
+        for i in enumerate(self.triangles):
+            open_file_obj.write("{}\t{}\t{}\t{}\n".format(i[1].__str__(), i[0],  i[1].area(), i[1].perimeter()))
 
     def output_circumcircles(self, open_file_obj):
         """Outputs the circumcircles of the triangles of the triangulation
         to an open file
         """
         # Your implementation here
-        pass
+        open_file_obj.write('wkt\ttid\tarea\tperimeter\n')
+
+        for i in enumerate(self.triangles):
+            cc = i[1].circumcircle()
+            open_file_obj.write("{}\t{}\t{}\t{}\n".format(cc.__str__(),
+                                                          i[0],
+                                                          cc.area(),
+                                                          cc.perimeter()))
 
 
 def group3(N):
@@ -291,5 +303,4 @@ def _test():
 
 
 if __name__ == "__main__":
-    main(5)
-    print('a')
+    main(250)
