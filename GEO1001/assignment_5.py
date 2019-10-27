@@ -73,9 +73,9 @@ def mv_cov_covinv(ar1, ar2):
 
 
 def minimum_distance_to_mean(vec, means):
-    print(vec)
-    return np.argmin([np.linalg.norm(vec-i) for i in means]) + 1
-
+    distances = [np.linalg.norm(vec-i) for i in means]
+    min_distance = distances[np.argmin(distances)]
+    return (np.argmin(distances) + 1, min_distance)
 
 
 if __name__ == '__main__':
@@ -83,6 +83,12 @@ if __name__ == '__main__':
     fn = './Multispectral Classification.xlsx'
     nir, red = load_multispectral_data(fn)[0], load_multispectral_data(fn)[1]
     ndvi = calculate_ndvi(nir, red)
+
+    fig = plt.figure(figsize=(6, 3.2))
+    ax = fig.add_subplot(111)
+    plt.imshow(ndvi)
+    plt.colorbar(orientation='vertical')
+    plt.title('NDVI values of 20x20 area')
     plot_histogram(ndvi, 0.2, 'histogram.jpg')
 
     ### assignment 2
@@ -107,7 +113,6 @@ if __name__ == '__main__':
     plt.savefig('scatter_f.jpg')
     plt.close()
 
-
     ### assignment 5
     # compute mean vector, covariance matrix and inverse of covariance matrix
     water_stats = mv_cov_covinv(red[~water_mask], nir[~water_mask])
@@ -118,7 +123,34 @@ if __name__ == '__main__':
     obs_vecs = np.array((red, nir)).T
     means = (veg_stats['mean vector'], bg_stats['mean vector'], water_stats['mean vector'])
 
-    np.vectorize(minimum_distance_to_mean, excluded='means')(obs_vecs, means)
+    classified = np.zeros(ndvi.shape)
+    distances = np.zeros(ndvi.shape)
+    for i in range(len(obs_vecs)):
+        for j in range(len(obs_vecs[i])):
+            pixel_class = minimum_distance_to_mean(obs_vecs[i][j], means)
+            classified[j][i] = pixel_class[0]
+            distances[j][i] = pixel_class[1]
+
+    # threshold distance values
+    classified[distances > 2*np.std(distances)] = None
+
+    # write to excel file
+    df = pd.DataFrame(classified)
+    df.to_excel('classified.xlsx', index=False)
+    plt.imshow(classified)
+    plt.show()
+
+    colors = {0:'lightgrey', 1: 'green', 2: 'red', 3:'blue'}
+
+    # assignment 7
+    for i in range(0, 4):
+        plt.scatter(red[classified == i], nir[classified == i], c=colors[i])
+        in_class = ndvi[classified == i]
+
+        in_class[abs(in_class - np.mean(in_class)) > np.std(in_class)] = None
+        ndvi_range = (np.nanmin(in_class), np.nanmax(in_class))
+
+    plt.show()
 
 
 
