@@ -25,8 +25,8 @@ if __name__ == '__main__':
     oc = './data/occluded.txt'
 
     # combine seperate files into one dataset
-    # combine_data(['./data/a.txt', './data/b.txt', './data/c.txt'], unoc)
-    # combine_data(['./data/a2.txt', './data/b2.txt', './data/c2.txt'], oc)
+    combine_data(['./data/a.txt', './data/b.txt', './data/c.txt'], unoc)
+    combine_data(['./data/a2.txt', './data/b2.txt', './data/c2.txt'], oc)
 
     # extract GGA latitude and longitude data
     unoc_pos = position_fixes(unoc)
