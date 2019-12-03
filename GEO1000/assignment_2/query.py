@@ -50,7 +50,6 @@ Bye bye.
             running = False
 
         else:
-
             place1_coords = nominatim(place1)
             place2_coords = nominatim(place2)
 
