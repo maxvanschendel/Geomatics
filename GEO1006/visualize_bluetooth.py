@@ -20,28 +20,28 @@ end_group = folium.FeatureGroup(name='Arrivals')
 # plotting parameters
 trip_minimum, stay_minimum = 15, 15
 
-# TRIPS
-# get amount of time each trip is taken
+# ROUTES: edges of graph (routes) weighted by amount of time they have been followed
+# count how many times a route has been followed
 df['trip'] = df['start_lat'].map(str) + ',' + \
              df['start_lon'].map(str) + ',' + \
              df['end_lat'].map(str) + ',' + \
              df['end_lon'].map(str)
-
 count = df['trip'].value_counts()
-tuples = [list((x.split(','), y)) for x, y in count.items()]
+count_tuples = [list((x.split(','), y)) for x, y in count.items()]
 
 # remove direction from graph: count(a,b) + count(b,a) -> weight
 combined_tuples = []
-pos = [i[0] for i in tuples]
-for i in tuples:
+pos = [i[0] for i in count_tuples]
+for i in count_tuples:
     try:
+        # find index of mirror edge
         mirror = [i[0][2], i[0][3], i[0][0], i[0][1]]
-        imirror = pos.index(mirror)
+        mirror_index = pos.index(mirror)
     except ValueError:
         combined_tuples.append(i)
         continue
 
-    combined_tuples.append([i[0], i[1] + tuples[imirror][1]])
+    combined_tuples.append([i[0], i[1] + count_tuples[mirror_index][1]])
 
 # place trips on map.
 # Lines are weighted by the square root of occurence divided by a factor
@@ -59,11 +59,11 @@ for i in combined_tuples:
 
 # STAYS
 df['start_loc'] = df['start_lat'].map(str) + ',' + df['start_lon'].map(str)
-df['end_loc'] = df['end_lat'].map(str) + ',' + df['end_lon'].map(str)
-
 start_count = df['start_loc'].value_counts()
-end_count = df['end_loc'].value_counts()
 start_tuples = [tuple((x, y)) for x, y in start_count.items()]
+
+df['end_loc'] = df['end_lat'].map(str) + ',' + df['end_lon'].map(str)
+end_count = df['end_loc'].value_counts()
 end_tuples = [tuple((x, y)) for x, y in end_count.items()]
 
 # place markers on nodes of graph
@@ -72,7 +72,7 @@ for i in enumerate(start_tuples):
         # create stay markers
         folium.CircleMarker(
             location=i[1][0].split(','),
-            radius=i[1][1] / 80,
+            radius=i[1][1]/ 80,
             weight=1,
             fill=True,
             color='lightblue',

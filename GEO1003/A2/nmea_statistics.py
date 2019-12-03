@@ -18,7 +18,6 @@ def extract_position_fixes(file):
 
         rmc = list(filter(lambda x: x.sentence_type == 'RMC' and x.status == 'A', data))
         gga = list(filter(lambda x: x.sentence_type == 'GGA' and x.gps_qual != 0, data))
-
         fixes = rmc + gga
 
         lat = [msg.latitude for msg in fixes]
@@ -29,7 +28,6 @@ def extract_position_fixes(file):
 
 
 def pos_statistics(x_pop, y_pop, z_pop):
-
     print('XY mean:', stats.mean(x_pop), ',', stats.mean(y_pop))
     print('XY median:', stats.median(x_pop), ',', stats.median(y_pop))
     print('Z mean:', stats.mean(z_pop), 'm')
