@@ -30,7 +30,7 @@ def vis_scanners():
             popup='COUNT: ' + str(i[1])
         ).add_to(m)
 
-        folium.CircleMarker(location=i[0].split(','),radius=1,fill=True, color='crimson').add_to(m)
+        folium.CircleMarker(location=i[0].split(','), radius=1, fill=True, color='crimson').add_to(m)
 
     # save map to disk
     m.save('scanners.html')
@@ -63,7 +63,7 @@ def vis_trips():
         end = (float(i[0][2]), float(i[0][3]))
         count = i[1]
 
-        folium.PolyLine([start, end], weight=math.sqrt(count / 30), legend_name='trips').add_to(m)
+        folium.PolyLine([start, end], weight=math.sqrt(count / 30), popup='COUNT: ' + str(count), legend_name='trips').add_to(m)
 
     m.save('trips.html')
 
@@ -71,4 +71,3 @@ def vis_trips():
 if __name__ == '__main__':
     vis_scanners()
     vis_trips()
-    
