@@ -44,7 +44,6 @@ bl2_group = folium.FeatureGroup(name='Mobile: Walking along line')
 gps_group = folium.FeatureGroup(name='Commercial')
 line_group = folium.FeatureGroup(name='Real 52nd latitude')
 
-
 folium.PolyLine([(52.0,4),(52.0,5.0)], color = 'white', dash_array='20,20').add_to(line_group)
 
 for i in enumerate(gps_latlon):

@@ -6,6 +6,26 @@
 import math
 import rasterio
 import numpy as np
+import matplotlib.pyplot as plt
+
+
+def get_outlets(elevation):
+	outlets = np.ones(elevation.shape)
+
+	# mask outlets on edge of array
+	outlets[1:elevation.shape[0] - 1, 1:elevation.shape[1] - 1] = 0
+
+	# mask all points that have a zero neighbours but are not zero themselves
+	zero_elevation_neighbours = np.zeros(elevation.shape)
+	for (x, y), item in np.ndenumerate(elevation):
+		if 0 in elevation[x-1:x+2, y-1:y+2] and item != 0:
+			zero_elevation_neighbours[x, y] = 1
+
+	outlets += zero_elevation_neighbours
+	outlets = np.array(outlets, dtype=bool)
+
+	return outlets
+
 
 def flow_direction(elevation):
 	"""
@@ -18,7 +38,11 @@ def flow_direction(elevation):
     Output:
         returns grid with flow directions (encoded in whichever way you decide)
  
-    """  
+    """
+
+	outlets = get_outlets(elevation)
+
+
 
 def flow_accumulation(directions):
 	"""
