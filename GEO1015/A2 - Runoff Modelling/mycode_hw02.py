@@ -9,6 +9,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+# gets all points that are outlets, these are either:
+# points on the border of the terrain
+# points that have a neighbour with an elevation of zero but are not zero themselves
 def get_outlets(elevation):
 	outlets = np.ones(elevation.shape)
 
@@ -18,13 +21,19 @@ def get_outlets(elevation):
 	# mask all points that have a zero neighbours but are not zero themselves
 	zero_elevation_neighbours = np.zeros(elevation.shape)
 	for (x, y), item in np.ndenumerate(elevation):
-		if 0 in elevation[x-1:x+2, y-1:y+2] and item != 0:
+		if 0 in elevation[x-1:x+2, y-1:y+2] and item:
 			zero_elevation_neighbours[x, y] = 1
 
+	# combine zero value outlets with edge outlets
 	outlets += zero_elevation_neighbours
 	outlets = np.array(outlets, dtype=bool)
 
-	return outlets
+	return np.ma.masked_array(elevation,outlets)
+
+
+# gets index of the lower elevation in the terrain
+def lowest_elevation_index(elevation):
+	return np.unravel_index(np.argmin(elevation, axis=None), elevation.shape)
 
 
 def flow_direction(elevation):
@@ -41,7 +50,16 @@ def flow_direction(elevation):
     """
 
 	outlets = get_outlets(elevation)
+	ind = lowest_elevation_index(outlets)
+	print(ind)
 
+
+
+	# plt.imshow(outlets,cmap='gray')
+	# plt.show()
+	#
+	# plt.imshow(elevation)
+	# plt.show()
 
 
 def flow_accumulation(directions):
