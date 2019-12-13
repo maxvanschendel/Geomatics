@@ -104,6 +104,8 @@ def flow_direction(elevation):
 	while priority_queue:
 		heappush(processed, cur)
 
+		print(len(processed))
+
 		i = 0
 		for coords, item in np.ndenumerate(get_neighbours(elevation, cur[1][0], cur[1][1])):
 			i += 1
@@ -120,8 +122,8 @@ def flow_direction(elevation):
 		else:
 			cur = lsuhs
 
-	#plt.imshow(flow_direction)
-	#plt.show()
+	plt.imshow(flow_direction)
+	plt.show()
 
 
 def flow_accumulation(directions):
@@ -164,7 +166,7 @@ def write_accumulation_raster(raster, input_profile):
 	"""
 
 # Open file
-with rasterio.open('tasmania_small.tif') as src:
+with rasterio.open('tasmania.tif') as src:
 	elevation = np.array(src.read()[0])
 	profile = src.profile
 
