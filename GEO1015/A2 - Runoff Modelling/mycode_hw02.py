@@ -7,6 +7,7 @@ import math
 import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from heapq import *
 
 
@@ -32,11 +33,13 @@ def get_outlets(elevation):
 
 
 def minimum_elevation(neighbours):
-	minimum = (math.inf, None)
-	for (x, y), item in np.ndenumerate(neighbours):
-		if item < minimum[0] and item != 0.0 and (x, y) != (1, 1):
-			minimum = (item, (x, y))
-	return minimum
+	if neighbours.size:
+		ind = np.unravel_index(np.argmin(neighbours, axis=None), neighbours.shape)
+
+		if ind != (1, 1):
+			val = neighbours[ind[0]][ind[1]]
+			if val != 0:
+				return val, ind
 
 
 # converts 2d numpy array to priority queue
@@ -60,13 +63,9 @@ def least_steep_uphill_slope(elevation, x, y):
 	neighbours = get_neighbours(elevation, x, y)
 	minimum_neighbour = minimum_elevation(neighbours)
 
-	if minimum_neighbour[1]:
-		x_elev = x + minimum_neighbour[1][0] - 1
-		y_elev = y + minimum_neighbour[1][1] - 1
-
+	if minimum_neighbour is not None:
 		global_coords = local_to_global_coords(minimum_neighbour[1], (x,y))
-
-		return elevation[x_elev][y_elev], (x_elev, y_elev)
+		return elevation[global_coords[0]][global_coords[1]], global_coords
 
 	else:
 		return None
@@ -104,25 +103,25 @@ def flow_direction(elevation):
 	# keep searching until priority queue is empty
 	while priority_queue:
 		heappush(processed, cur)
-		print(len(priority_queue))
+
 		i = 0
 		for coords, item in np.ndenumerate(get_neighbours(elevation, cur[1][0], cur[1][1])):
 			i += 1
 			coords = local_to_global_coords(coords, cur[1])
+
 			if (item, coords) not in processed and (item, coords) not in priority_queue:
 				heappush(priority_queue, (item, coords))
 				flow_direction[coords[0]][coords[1]] = i
 
-
 		lsuhs = least_steep_uphill_slope(elevation, cur[1][0], cur[1][1])
 
-		if lsuhs in processed or lsuhs == None:
+		if lsuhs in processed or lsuhs is None:
 			cur = heappop(priority_queue)
 		else:
 			cur = lsuhs
 
-	plt.imshow(flow_direction)
-	plt.show()
+	#plt.imshow(flow_direction)
+	#plt.show()
 
 
 def flow_accumulation(directions):
@@ -163,3 +162,17 @@ def write_accumulation_raster(raster, input_profile):
 		input_profile: profile of elevation grid (which you can copy and modify)
  
 	"""
+
+# Open file
+with rasterio.open('tasmania_small.tif') as src:
+	elevation = np.array(src.read()[0])
+	profile = src.profile
+
+	# Plot input
+	# plt.figure(1)
+	# im = plt.imshow(elevation)
+	# plt.colorbar(im)
+	# plt.show()
+
+	# Compute flow directions
+	directions = flow_direction(elevation)
