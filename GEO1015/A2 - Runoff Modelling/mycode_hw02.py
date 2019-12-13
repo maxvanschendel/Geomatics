@@ -64,7 +64,7 @@ def least_steep_uphill_slope(elevation, x, y):
 	minimum_neighbour = minimum_elevation(neighbours)
 
 	if minimum_neighbour is not None:
-		global_coords = local_to_global_coords(minimum_neighbour[1], (x,y))
+		global_coords = local_to_global_coords(minimum_neighbour[1], (x, y))
 		return elevation[global_coords[0]][global_coords[1]], global_coords
 
 	else:
@@ -93,37 +93,30 @@ def flow_direction(elevation):
 	# construct priority queue from outlets
 	priority_queue = np_to_pq(masked_terrain)
 
-	# processed heap
-	processed = []
-	heapify(processed)
-
 	# initial pop
 	cur = heappop(priority_queue)
 
 	# keep searching until priority queue is empty
 	while priority_queue:
-		heappush(processed, cur)
-
-		print(len(processed))
 
 		i = 0
 		for coords, item in np.ndenumerate(get_neighbours(elevation, cur[1][0], cur[1][1])):
 			i += 1
 			coords = local_to_global_coords(coords, cur[1])
 
-			if (item, coords) not in processed and (item, coords) not in priority_queue:
+			if flow_direction[coords[0]][coords[1]] == 0 and (item, coords) not in priority_queue:
 				heappush(priority_queue, (item, coords))
 				flow_direction[coords[0]][coords[1]] = i
 
 		lsuhs = least_steep_uphill_slope(elevation, cur[1][0], cur[1][1])
 
-		if lsuhs in processed or lsuhs is None:
+		if lsuhs is None or flow_direction[lsuhs[1][0]][lsuhs[1][1]] != 0:
 			cur = heappop(priority_queue)
 		else:
 			cur = lsuhs
 
-	plt.imshow(flow_direction)
-	plt.show()
+	#plt.imshow(flow_direction)
+	#plt.show()
 
 
 def flow_accumulation(directions):
