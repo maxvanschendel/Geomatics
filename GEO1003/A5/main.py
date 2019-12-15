@@ -1,5 +1,3 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
-
 import pandas as pd
 from utils import group_dataset_by_datetime
 from sklearn.neural_network import MLPClassifier
@@ -29,8 +27,8 @@ print('- Grouping by datetime')
 grouped_by_datetime = group_dataset_by_datetime(shuffled_dataset)
 grouped_dataframe = pd.DataFrame(grouped_by_datetime).transpose()
 
-print('- Splitting train/test')
 # split data into training and testing data
+print('- Splitting train/test')
 msk = np.random.rand(len(grouped_dataframe)) < 0.7
 train = grouped_dataframe[msk]
 test = grouped_dataframe[~msk]
@@ -38,12 +36,12 @@ test = grouped_dataframe[~msk]
 X_train, X_test = train['data'], test['data']
 Y_train, Y_test = train['room'], test['room']
 
+# convert dictionaries to dataframes
 print('- Converting dicts to dataframe')
 unique_macs = filtered_dataset['mac'].unique()
 X_columnized_train = pd.DataFrame(columns=unique_macs, dtype=int)
 X_columnized_test = pd.DataFrame(columns=unique_macs, dtype=int)
 
-# convert dictionaries to dataframe
 for i in enumerate(X_train.tolist()):
     for j in i[1]:
         X_columnized_train.loc[i[0], j['mac']] = j['rssi']
@@ -52,15 +50,15 @@ for i in enumerate(X_test.tolist()):
     for j in i[1]:
         X_columnized_test.loc[i[0], j['mac']] = j['rssi']
 
-print('- Setting NaN to zero')
 # set rssi of all mac addresses that haven't been registered to zero
+print('- Setting NaN to zero')
 X_columnized_train = X_columnized_train.fillna(0)
 X_columnized_test = X_columnized_test.fillna(0)
 
-print('Fitting models')
 # construct and train neural network, random forest, support vector machine and logistic regression
+print('Fitting models')
 print('- Neural Network')
-NN = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(32, 5), random_state=1, max_iter=2500).fit(X_columnized_train, Y_train)
+NN = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(150, 15), random_state=1, max_iter=2500).fit(X_columnized_train, Y_train)
 
 print('- Random Forest')
 RF = RandomForestClassifier(n_estimators=100, max_depth=50, random_state=0).fit(X_columnized_train, Y_train)
@@ -74,7 +72,7 @@ LR = LogisticRegression(random_state=0, solver='lbfgs', multi_class='ovr', max_i
 # test prediction accuracy on test dataset
 print('Testing accuracy')
 print('- No. classes:', len(Y_train.unique()))
-print('- NN score:', round(NN.score(X_columnized_test, Y_test), 4))
-print('- RF score:', round(RF.score(X_columnized_test, Y_test), 4))
-print('- SVM score:', round(SVM.score(X_columnized_test, Y_test), 4))
-print('- LR score:', round(LR.score(X_columnized_test, Y_test), 4))
+print('- NN score:', round(NN.score(X_columnized_test, Y_test), 3))
+print('- RF score:', round(RF.score(X_columnized_test, Y_test), 3))
+print('- SVM score:', round(SVM.score(X_columnized_test, Y_test), 3))
+print('- LR score:', round(LR.score(X_columnized_test, Y_test), 3))
