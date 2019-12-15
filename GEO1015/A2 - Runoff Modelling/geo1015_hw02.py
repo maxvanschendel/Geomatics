@@ -18,7 +18,7 @@ import mycode_hw02
 def main():
 
 	# Open file
-	with rasterio.open('tasmania.tif') as src:
+	with rasterio.open('tasmania_small.tif') as src:
 		elevation = np.array(src.read()[0])
 		profile = src.profile
 
