@@ -3,12 +3,12 @@ from utils import group_dataset_by_datetime
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import plot_confusion_matrix, confusion_matrix
 from sklearn import svm
 from numpy.random import rand
 import os
 
 
+# load multiple data sets into one datagrame
 print("Loading data")
 merged_rooms = pd.DataFrame(columns=["datetime", "mac", "empty", 
                                      "ssid", "rssi", "channel", 
@@ -88,7 +88,6 @@ LR = LogisticRegression(random_state=0, solver="lbfgs", multi_class="ovr", max_i
 print("Testing accuracy")
 print("- No. classes:", len(set(Y_test)))
 print("- Classes:", set(Y_test))
-
 print("- NN score:", round(NN.score(X_columnized_test, Y_test), 3))
 print("- RF score:", round(RF.score(X_columnized_test, Y_test), 3))
 print("- SVM score:", round(SVM.score(X_columnized_test, Y_test), 3))
