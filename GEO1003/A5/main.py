@@ -3,6 +3,11 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import pandas as pd
 from utils import group_dataset_by_datetime
 from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn import svm
+import numpy as np
+
 
 room_b = pd.read_csv(
     "B.txt",
@@ -29,27 +34,40 @@ shuffled_dataset = filtered_dataset.sample(frac=1).reset_index(drop=True)
 grouped_by_datetime = group_dataset_by_datetime(shuffled_dataset)
 grouped_dataframe = pd.DataFrame(grouped_by_datetime).transpose()
 
-X = grouped_dataframe['data']
-Y = grouped_dataframe['room']
+# split data into training and testing data
+msk = np.random.rand(len(grouped_dataframe)) < 0.7
+train = grouped_dataframe[msk]
+test = grouped_dataframe[~msk]
+
+X_train, X_test = train['data'], test['data']
+Y_train, Y_test = train['room'], test['room']
 
 unique_macs = filtered_dataset['mac'].unique()
-columnized = pd.DataFrame(columns=unique_macs, dtype=int)
+
+X_columnized_train = pd.DataFrame(columns=unique_macs, dtype=int)
+X_columnized_test = pd.DataFrame(columns=unique_macs, dtype=int)
 
 # convert dictionaries to dataframe
-for i in enumerate(X.tolist()):
+for i in enumerate(X_train.tolist()):
     for j in i[1]:
-        columnized.loc[i[0], j['mac']] = j['rssi']
+        X_columnized_train.loc[i[0], j['mac']] = j['rssi']
+
+for i in enumerate(X_test.tolist()):
+    for j in i[1]:
+        X_columnized_test.loc[i[0], j['mac']] = j['rssi']
+
 
 # set rssi of all mac addresses that haven't been registered to zero
-columnized = columnized.fillna(0)
+X_columnized_train = X_columnized_train.fillna(0)
+X_columnized_test = X_columnized_test.fillna(0)
 
 # construct and train neural network
-NN = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(32, 2), random_state=1)
-NN.fit(columnized, Y)
+NN = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(32, 5), random_state=1).fit(X_columnized_train, Y_train)
+RF = RandomForestClassifier(n_estimators=100, max_depth=50, random_state=0).fit(X_columnized_train, Y_train)
+SVM = svm.SVC(decision_function_shape="ovo").fit(X_columnized_train, Y_train)
+LR = LogisticRegression(random_state=0, solver='lbfgs', multi_class='ovr').fit(X_columnized_train, Y_train)
 
-wrong = 0
-for i in range(Y.size):
-    if Y.iloc[i] != NN.predict(columnized.iloc[i:i+1, :])[0]:
-        wrong += 1
-
-print(wrong)
+print('NN score:', round(NN.score(X_columnized_test, Y_test), 4))
+print('RF score:', round(RF.score(X_columnized_test, Y_test), 4))
+print('SVM score:', round(SVM.score(X_columnized_test, Y_test), 4))
+print('LR score:', round(LR.score(X_columnized_test, Y_test), 4))
