@@ -1,12 +1,14 @@
-import pandas as pd
 from utils import group_dataset_by_datetime
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn import svm
 from numpy.random import rand
+import pandas as pd
 import os
-
+from sklearn.metrics import plot_confusion_matrix
+import matplotlib.pyplot as plt
+import numpy as np
 
 # load multiple data sets into one datagrame
 print("Loading data")
@@ -85,10 +87,17 @@ LR = LogisticRegression(random_state=0, solver="lbfgs", multi_class="ovr", max_i
 
 
 # test prediction accuracy on test dataset
+classifiers = {'NN': NN, 'RF': RF, 'SVM': SVM, 'LR': LR}
 print("Testing accuracy")
 print("- No. classes:", len(set(Y_test)))
 print("- Classes:", set(Y_test))
-print("- NN score:", round(NN.score(X_columnized_test, Y_test), 3))
-print("- RF score:", round(RF.score(X_columnized_test, Y_test), 3))
-print("- SVM score:", round(SVM.score(X_columnized_test, Y_test), 3))
-print("- LR score:", round(LR.score(X_columnized_test, Y_test), 3))
+
+np.set_printoptions(precision=2)
+for i in classifiers:
+    print('- ' + i + ' score:', round(classifiers[i].score(X_columnized_test, Y_test), 3))
+    cf = plot_confusion_matrix(classifiers[i], X_columnized_test, Y_test,
+                               display_labels=set(Y_test), cmap='Blues',
+                               normalize='true', xticks_rotation='vertical')
+    plt.title(i+' confusion matrix')
+    plt.show()
+    plt.close()
