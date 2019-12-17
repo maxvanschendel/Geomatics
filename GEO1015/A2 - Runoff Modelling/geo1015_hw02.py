@@ -22,7 +22,7 @@ def main():
 		elevation = np.array(src.read()[0])
 		profile = src.profile
 
-	# Plot input
+	# # Plot input
 	# plt.figure(1)
 	# im = plt.imshow(elevation)
 	# plt.colorbar(im)
@@ -31,21 +31,21 @@ def main():
 	# Compute flow directions
 	directions = mycode_hw02.flow_direction(elevation)
 
-	# Plot directions and write them to a file
+	# # Plot directions and write them to a file
 	# plt.figure(2)
 	# im = plt.imshow(directions)
 	# plt.colorbar(im)
 	# plt.show()
-	mycode_hw02.write_directions_raster(directions, profile)
+	# mycode_hw02.write_directions_raster(directions, profile)
 
 	# Compute flow accumulation
 	accumulation = mycode_hw02.flow_accumulation(directions)
 
 	# Plot accumulation and write them to a file
-	# plt.figure(3)
-	# im = plt.imshow(accumulation, norm=LogNorm())
-	# plt.colorbar(im)
-	# plt.show()
+	plt.figure(3)
+	im = plt.imshow(accumulation, norm=LogNorm())
+	plt.colorbar(im)
+	plt.show()
 	mycode_hw02.write_accumulation_raster(accumulation, profile)
 
 if __name__ == '__main__':

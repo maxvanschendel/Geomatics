@@ -11,7 +11,9 @@ from matplotlib import colors
 import time
 from heapq import *
 import random
-
+from matplotlib.colors import LogNorm
+import seaborn as sn
+from random import shuffle
 
 # get neighbouring pixels by slicing np array
 def get_neighbours(data, x, y):
@@ -40,7 +42,7 @@ def minimum_elevation(neighbours):
     if neighbours.size:
         ind = np.unravel_index(np.argmin(neighbours, axis=None), neighbours.shape)
 
-        if ind != (1, 1):
+        if tuple(ind) != (1, 1):
             val = neighbours[ind[0]][ind[1]]
             if val != 0:
                 return val, ind
@@ -81,19 +83,17 @@ def find_upstream_pixels(flow_directions, coords):
                              (0, 2): 7, (1, 2): 8, (2, 2): 9}
 
     upstream_pixels = []
-
     neighbours = get_neighbours(flow_directions, coords[0], coords[1])
 
     for index in flow_direction_decode:
         try:
-            val_at_index = neighbours[index[0]][index[1]]
+            val_at_index = neighbours[index[1]][index[0]]
         except IndexError:
             val_at_index = None
 
         if flow_direction_decode[index] == val_at_index:
             upstream_pixels.append(index)
 
-    random.shuffle(upstream_pixels)
     return upstream_pixels
 
 
@@ -140,9 +140,6 @@ def flow_direction(elevation):
         else:
             cur = min_neighbour
 
-    plt.imshow(flow_dir, cmap='Set2')
-    plt.savefig('flow_dir.png')
-
     return flow_dir
 
 
@@ -156,34 +153,29 @@ def flow_accumulation(directions):
 		returns grid with accumulated flow (in number of upstream cells)
 	"""
 
-    accumulated_flow = np.empty(directions.shape)
-
+    accumulated_flow = np.ones(directions.shape)
     # for every pixel, count number of pixels that are uphill from it
+
     for coords, item in np.ndenumerate(directions):
+        processed = set([])
         # initialize search queue
         search_queue = [(0, coords)]
         heapify(search_queue)
 
         # processed pixels are marked to prevent walking in circles
-        processed = []
 
         c = 0
         while search_queue:
             cur = heappop(search_queue)
             upstream_pixels = find_upstream_pixels(directions, cur[1])
-
             for i in upstream_pixels:
                 global_coords = local_to_global_coords(i, cur[1])
-
                 if global_coords not in processed:
                     heappush(search_queue, (c, global_coords))
-                    processed.append(global_coords)
+                    processed.add(global_coords)
 
                     accumulated_flow[coords[0]][coords[1]] += 1
                     c += 1
-
-    plt.imshow(accumulated_flow, cmap='gray')
-    plt.savefig('acc_flow.png')
 
     return accumulated_flow
 
