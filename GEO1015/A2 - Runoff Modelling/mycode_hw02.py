@@ -15,6 +15,7 @@ from matplotlib.colors import LogNorm
 import seaborn as sn
 from random import shuffle
 
+
 # get neighbouring pixels by slicing np array
 def get_neighbours(data, x, y):
     return data[x - 1:x + 2, y - 1:y + 2]
@@ -128,7 +129,6 @@ def flow_direction(elevation):
             if flow_dir[coords[0]][coords[1]] == 0 and (item, coords) not in priority_queue and (item, coords):
                 heappush(priority_queue, (item, coords))
                 flow_dir[coords[0]][coords[1]] = i
-
             i += 1
 
         # neighbour with lowest elevation value
@@ -154,29 +154,31 @@ def flow_accumulation(directions):
 	"""
 
     accumulated_flow = np.ones(directions.shape)
-    # for every pixel, count number of pixels that are uphill from it
 
+    # for every pixel, count number of pixels that are uphill from it
     for coords, item in np.ndenumerate(directions):
-        processed = set([])
+        # processed pixels are marked to prevent walking in circles
+        processed = {coords}
+
         # initialize search queue
         search_queue = [(0, coords)]
         heapify(search_queue)
-
-        # processed pixels are marked to prevent walking in circles
 
         c = 0
         while search_queue:
             cur = heappop(search_queue)
             upstream_pixels = find_upstream_pixels(directions, cur[1])
+
             for i in upstream_pixels:
                 global_coords = local_to_global_coords(i, cur[1])
                 if global_coords not in processed:
                     heappush(search_queue, (c, global_coords))
                     processed.add(global_coords)
 
-                    accumulated_flow[coords[0]][coords[1]] += 1
-                    c += 1
+                accumulated_flow[coords[0]][coords[1]] += 1
+                c += 1
 
+    print(accumulated_flow.max())
     return accumulated_flow
 
 
