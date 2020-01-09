@@ -12,13 +12,13 @@ import rasterio
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import seaborn as sns
-
+import time
 import mycode_hw02
 
 def main():
-
 	# Open file
-	with rasterio.open('tasmania.tif') as src:
+	start_time=time.clock()
+	with rasterio.open('tasmania_small.tif') as src:
 		elevation = np.array(src.read()[0])
 		profile = src.profile
 
@@ -32,11 +32,11 @@ def main():
 	directions = mycode_hw02.flow_direction(elevation)
 
 	# # Plot directions and write them to a file
-	# plt.figure(2)
-	# im = plt.imshow(directions)
-	# plt.colorbar(im)
-	# plt.show()
-	# mycode_hw02.write_directions_raster(directions, profile)
+	plt.figure(2)
+	im = plt.imshow(directions)
+	plt.colorbar(im)
+	plt.show()
+	mycode_hw02.write_directions_raster(directions, profile)
 
 	# Compute flow accumulation
 	accumulation = mycode_hw02.flow_accumulation(directions)
@@ -47,6 +47,7 @@ def main():
 	plt.colorbar(im)
 	plt.show()
 	mycode_hw02.write_accumulation_raster(accumulation, profile)
+	print(time.clock()-start_time)
 
 if __name__ == '__main__':
   main()

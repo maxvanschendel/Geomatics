@@ -47,6 +47,16 @@ def point_cloud_to_grid(point_cloud, cell_size):
                 ground_points.add((nonzero_indices[0][min_index]+x_range[0],
                                    nonzero_indices[1][min_index]+y_range[0],
                                    nonzero_elements[min_index]))
+
+                non_min_x = np.delete(nonzero_indices[0], min_index)
+                non_min_y = np.delete(nonzero_indices[1], min_index)
+                non_min_elements = np.delete(nonzero_elements, min_index)
+
+                for index, x in enumerate(non_min_x):
+                    y = non_min_y[index]
+
+                    discarded_points.add((x + x_range[0], y + y_range[0], non_min_elements[index]))
+
             except ValueError:
                 pass
 
@@ -79,9 +89,14 @@ def filter_ground(jparams):
     point_cloud = File(jparams['input-las'], mode='r')
 
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'])
-    init_grid, unprocessed_points = gridded_pc[0], gridded_pc[1]
+    ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
+    init_delaunay = startin.DT()
+    init_delaunay.insert(list(ground_points))
 
-    init_delaunay = startin.DT(init_grid)
-    print(len(init_grid))
+    for x, y, z in unprocessed_points:
+        vert_proj_intersector = init_delaunay.locate(x, y)
+        print('-----')
+        print(vert_proj_intersector)
+
 
     return
