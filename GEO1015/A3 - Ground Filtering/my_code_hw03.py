@@ -4,27 +4,24 @@
 # -- [YOUR STUDENT NUMBER]
 
 import math
-
-# for reading LAS files
 from laspy.file import File
 import numpy as np
-import seaborn
-# triangulation for ground filtering algorithm and TIN interpolation 
 import startin
-
-# kdtree for IDW interpolation
 from scipy.spatial import cKDTree
 
 
 def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
-    print('Thinning grid')
+
     ground_points, discarded_points = set(), set()
 
     X, Y, Z = point_cloud.X[::thinning_factor], point_cloud.Y[::thinning_factor], point_cloud.Z[::thinning_factor]
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
 
+    X = X - X_min
+    Y = Y - Y_min
+
     stacked_array = np.vstack((X, Y, Z)).transpose()
-    rect_array = np.zeros((X_max+1, Y_max+1))
+    rect_array = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1))
 
     # converts 1D array to a 2D X, Y array with Z elements
     for x, y, z in stacked_array:
@@ -41,17 +38,18 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
             nonzero_elements = cell_points[nonzero_indices]
 
             if nonzero_elements.size:
+                # add local minimum to ground points
                 min_index = np.argmin(nonzero_elements)
-
                 ground_points.add((nonzero_indices[0][min_index]+x_range[0],
                                    nonzero_indices[1][min_index]+y_range[0],
                                    nonzero_elements[min_index]))
 
+                # get points that are not the local minimum
                 non_min_x = np.delete(nonzero_indices[0], min_index)
                 non_min_y = np.delete(nonzero_indices[1], min_index)
                 non_min_elements = np.delete(nonzero_elements, min_index)
 
-                # add points that aren't the local minimum to non-ground set
+                # add points that are not the local minimum to non-ground set
                 for index, x_cur in enumerate(non_min_x):
                     y_cur = non_min_y[index]
                     discarded_points.add((x_cur + x_range[0], y_cur + y_range[0], non_min_elements[index]))
@@ -119,15 +117,16 @@ def filter_ground(jparams):
     max_distance = jparams['gf-distance']
     max_angle = jparams['gf-angle']
 
+    print('- Flattening point cloud')
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
     ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
 
-    print('Constructing initial Delaunay')
+    print('- Creating initial Delaunay')
     delaunay = startin.DT()
     delaunay.insert(list(ground_points))
     delaunay.write_obj('./start.obj')
 
-    print('Iteratively constructing ground')
+    print('- Iteratively growing terrain')
     keep_running = True
     while keep_running:
         keep_running = False
@@ -136,17 +135,19 @@ def filter_ground(jparams):
             if (x, y, z) not in ground_points:
                 triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
                 if triangle_vertices:
+                    # check if perpendicular distance to triangle is below max
                     perp_distance = find_perp_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
 
                     if perp_distance is not None and perp_distance < max_distance:
+                        # check if max angle between point and triangle vertices is below max
                         dvx = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
                         v_angles = np.asarray([math.degrees(math.asin(perp_distance/i)) for i in dvx])
 
                         if v_angles.max() < max_angle:
                             delaunay.insert([(x, y, z)])
                             ground_points.add((x, y, z))
-
                             keep_running = True
+                            print(len(ground_points))
 
     delaunay.write_obj('./end.obj')
 
