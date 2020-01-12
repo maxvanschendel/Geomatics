@@ -144,7 +144,7 @@ def filter_ground(jparams):
             if perp_distance is not None and perp_distance < max_distance:
                 distances = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
                 angles = np.asarray([math.degrees(math.acos(perp_distance/i)) for i in distances])
-
+                print(angles.max())
                 if angles.max() < max_angle:
                     delaunay.insert([(x, y, z)])
                     #unprocessed_points.remove((x, y, z))
