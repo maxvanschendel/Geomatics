@@ -16,27 +16,24 @@ import startin
 from scipy.spatial import cKDTree
 
 
-def point_cloud_to_grid(point_cloud, cell_size):
+def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
     print('Thinning grid')
     ground_points, discarded_points = set(), set()
 
-    X, Y, Z = point_cloud.X, point_cloud.Y, point_cloud.Z
+    X, Y, Z = point_cloud.X[::thinning_factor], point_cloud.Y[::thinning_factor], point_cloud.Z[::thinning_factor]
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
 
     stacked_array = np.vstack((X, Y, Z)).transpose()
     rect_array = np.zeros((X_max+1, Y_max+1))
 
-    # converts the 1D array to a 2D X, Y array with Z elements
+    # converts 1D array to a 2D X, Y array with Z elements
     for x, y, z in stacked_array:
         if rect_array[x][y] == 0 or z < rect_array[x][y]:
             rect_array[x][y] = z
 
-    # create initial grid made of empty elements
-    gf_initgrid_shape = (int((X_max-X_min)/cell_size), int((Y_max-Y_min)/cell_size))
-
     # construct initial grid by slicing numpy array in chunks
-    for x in range(gf_initgrid_shape[0]):
-        for y in range(gf_initgrid_shape[1]):
+    for x in range(int((X_max-X_min)/cell_size)):
+        for y in range(int((Y_max-Y_min)/cell_size)):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
             cell_points = rect_array[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
@@ -62,8 +59,9 @@ def point_cloud_to_grid(point_cloud, cell_size):
     return ground_points, discarded_points
 
 
-# find perpendicular intersection of point with triangle plane
 def find_perp_distance(p, tri):
+    # finds perpendicular distance of point to a triangle
+
     tri_normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
     tri_normal_unit = tri_normal / np.linalg.norm(tri_normal)
 
@@ -75,17 +73,15 @@ def find_perp_distance(p, tri):
     if point_in_tri(intersection, tri):
         return np.linalg.norm(intersection - p)
 
-    else:
-        return None
+    return None
 
 
-# checks if point is in a plane using barycentric coordinates
 def point_in_tri(p, tri):
-    u = tri[1] - tri[0]
-    v = tri[2] - tri[0]
-    w = p - tri[0]
+    # checks if point is on a face using barycentric coordinates
 
+    u, v, w = tri[1] - tri[0], tri[2] - tri[0], p - tri[0]
     n = np.cross(u, v)
+
     gamma = np.dot(np.cross(u, w), n) / np.dot(n, n)
     beta = np.dot(np.cross(w, v), n) / np.dot(n, n)
     alpha = 1 - gamma - beta
@@ -93,8 +89,7 @@ def point_in_tri(p, tri):
     if 0 <= alpha <= 1 and 0 <= beta <= 1 and 0 <= gamma <= 1:
         return True
 
-    else:
-        return False
+    return False
 
 
 def filter_ground(jparams):
@@ -124,31 +119,35 @@ def filter_ground(jparams):
     max_distance = jparams['gf-distance']
     max_angle = jparams['gf-angle']
 
-    gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'])
+    gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
     ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
 
     print('Constructing initial Delaunay')
     delaunay = startin.DT()
     delaunay.insert(list(ground_points))
-    #delaunay.write_obj('./start.obj')
+    delaunay.write_obj('./start.obj')
 
-    print('Iteratively adding ground points')
+    print('Iteratively constructing ground')
+    keep_running = True
+    while keep_running:
+        keep_running = False
 
-    gp_count = 0
+        for x, y, z in unprocessed_points:
+            if (x, y, z) not in ground_points:
+                triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
+                if triangle_vertices:
+                    perp_distance = find_perp_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
 
-    for x, y, z in unprocessed_points:
-        triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
-        if triangle_vertices:
-            perp_distance = find_perp_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
+                    if perp_distance is not None and perp_distance < max_distance:
+                        dvx = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
+                        v_angles = np.asarray([math.degrees(math.asin(perp_distance/i)) for i in dvx])
 
-            if perp_distance is not None and perp_distance < max_distance:
-                distances = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
-                angles = np.asarray([math.degrees(math.acos(perp_distance/i)) for i in distances])
-                print(angles.max())
-                if angles.max() < max_angle:
-                    delaunay.insert([(x, y, z)])
-                    #unprocessed_points.remove((x, y, z))
-                    gp_count += 1
-                    print(gp_count)
+                        if v_angles.max() < max_angle:
+                            delaunay.insert([(x, y, z)])
+                            ground_points.add((x, y, z))
+
+                            keep_running = True
+
+    delaunay.write_obj('./end.obj')
 
     return
