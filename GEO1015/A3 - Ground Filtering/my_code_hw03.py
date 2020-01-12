@@ -91,6 +91,10 @@ def point_in_tri(p, tri):
     return False
 
 
+def dt_to_grid(dt, cell_size):
+    pass
+
+
 def filter_ground(jparams):
     """
   !!! TO BE COMPLETED !!!
@@ -140,15 +144,16 @@ def filter_ground(jparams):
                 triangle_vertices = [dt.get_point(p) for p in dt.locate(x, y)]
 
                 if triangle_vertices:
-                    # check if perpendicular distance to triangle is below max
+                    # check if perpendicular distance to triangle is below threshold
                     pdist = perpendicular_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
 
                     if pdist is not None and pdist < max_distance:
-                        # check if max angle between point and triangle vertices is below max
+                        # check if max angle between point and triangle vertices is below threshold
                         dvx = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
                         v_angles = np.asarray([math.degrees(math.asin(pdist/i)) for i in dvx])
 
                         if v_angles.max() < max_angle:
+                            # add point to dt and mark it as ground point, set flag to keep running
                             dt.insert([(x, y, z)])
                             ground_points.add((x, y, z))
                             keep_running = True
