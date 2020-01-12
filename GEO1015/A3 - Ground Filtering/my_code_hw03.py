@@ -17,22 +17,23 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
     X, Y, Z = point_cloud.X[::thinning_factor], point_cloud.Y[::thinning_factor], point_cloud.Z[::thinning_factor]
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
 
+    # move (X_min, Y_min) to (0, 0)
     X = X - X_min
     Y = Y - Y_min
 
     stacked_array = np.vstack((X, Y, Z)).transpose()
-    rect_array = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1))
+    point_cloud_ar = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1))
 
     # converts 1D array to a 2D X, Y array with Z elements
     for x, y, z in stacked_array:
-        if rect_array[x][y] == 0 or z < rect_array[x][y]:
-            rect_array[x][y] = z
+        if point_cloud_ar[x][y] == 0 or z < point_cloud_ar[x][y]:
+            point_cloud_ar[x][y] = z
 
     # construct initial grid by slicing numpy array in chunks
     for x in range(int((X_max-X_min)/cell_size)):
         for y in range(int((Y_max-Y_min)/cell_size)):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
-            cell_points = rect_array[x_range[0]: x_range[1], y_range[0]: y_range[1]]
+            cell_points = point_cloud_ar[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
             nonzero_indices = np.nonzero(cell_points)
             nonzero_elements = cell_points[nonzero_indices]
@@ -57,7 +58,7 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
     return ground_points, discarded_points
 
 
-def find_perp_distance(p, tri):
+def perpendicular_distance(p, tri):
     # finds perpendicular distance of point to a triangle
 
     tri_normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
@@ -121,34 +122,38 @@ def filter_ground(jparams):
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
     ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
 
-    print('- Creating initial Delaunay')
-    delaunay = startin.DT()
-    delaunay.insert(list(ground_points))
-    delaunay.write_obj('./start.obj')
+    print('- Creating initial mesh')
+    dt = startin.DT()
+    dt.insert(list(ground_points))
 
-    print('- Iteratively growing terrain')
+    print('- Writing initial mesh')
+    dt.write_obj('./start.obj')
+
+    print('- Growing terrain')
     keep_running = True
     while keep_running:
         keep_running = False
 
         for x, y, z in unprocessed_points:
             if (x, y, z) not in ground_points:
-                triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
+                # get vertices of triangle intersecting with vertical projection of point
+                triangle_vertices = [dt.get_point(p) for p in dt.locate(x, y)]
+
                 if triangle_vertices:
                     # check if perpendicular distance to triangle is below max
-                    perp_distance = find_perp_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
+                    pdist = perpendicular_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
 
-                    if perp_distance is not None and perp_distance < max_distance:
+                    if pdist is not None and pdist < max_distance:
                         # check if max angle between point and triangle vertices is below max
                         dvx = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
-                        v_angles = np.asarray([math.degrees(math.asin(perp_distance/i)) for i in dvx])
+                        v_angles = np.asarray([math.degrees(math.asin(pdist/i)) for i in dvx])
 
                         if v_angles.max() < max_angle:
-                            delaunay.insert([(x, y, z)])
+                            dt.insert([(x, y, z)])
                             ground_points.add((x, y, z))
                             keep_running = True
-                            print(len(ground_points))
 
-    delaunay.write_obj('./end.obj')
+    print('- Writing final mesh')
+    dt.write_obj('./end.obj')
 
     return
