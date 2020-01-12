@@ -62,6 +62,41 @@ def point_cloud_to_grid(point_cloud, cell_size):
     return ground_points, discarded_points
 
 
+# find perpendicular intersection of point with triangle plane
+def find_perp_distance(p, tri):
+    tri_normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
+    tri_normal_unit = tri_normal / np.linalg.norm(tri_normal)
+
+    vec2p = p - tri[0]
+    vec2p_dot = np.dot(vec2p, tri_normal_unit)
+
+    intersection = p - (tri_normal_unit * vec2p_dot)
+
+    if point_in_tri(intersection, tri):
+        return np.linalg.norm(intersection - p)
+
+    else:
+        return None
+
+
+# checks if point is in a plane using barycentric coordinates
+def point_in_tri(p, tri):
+    u = tri[1] - tri[0]
+    v = tri[2] - tri[0]
+    w = p - tri[0]
+
+    n = np.cross(u, v)
+    gamma = np.dot(np.cross(u, w), n) / np.dot(n, n)
+    beta = np.dot(np.cross(w, v), n) / np.dot(n, n)
+    alpha = 1 - gamma - beta
+
+    if 0 <= alpha <= 1 and 0 <= beta <= 1 and 0 <= gamma <= 1:
+        return True
+
+    else:
+        return False
+
+
 def filter_ground(jparams):
     """
   !!! TO BE COMPLETED !!!
@@ -99,34 +134,21 @@ def filter_ground(jparams):
 
     print('Iteratively adding ground points')
 
-
     gp_count = 0
 
     for x, y, z in unprocessed_points:
-        try:
-            perp_intersector = [x, y, delaunay.interpolate_tin_linear(px=x, py=y)]
+        triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
+        if triangle_vertices:
+            perp_distance = find_perp_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
 
-        except OSError:
-            continue
+            if perp_distance is not None and perp_distance < max_distance:
+                distances = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
+                angles = np.asarray([math.degrees(math.acos(perp_distance/i)) for i in distances])
 
-        perp_distance = z - perp_intersector[2]
-
-        if perp_distance < max_distance:
-            # get vertices of triangles intersected by vertical projection and
-            # then calculate the euclidean distance to p for each vertex
-            triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
-            distances = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
-
-            # sohcahtoa
-            oh = [perp_distance/i for i in distances]
-            max_calculated_angle = np.max(np.asarray([math.degrees(math.acos(i)) if -1 < i < 1 else -math.inf for i in oh]))
-
-            if max_calculated_angle < max_angle:
-                delaunay.insert([(x, y, z)])
-                unprocessed_points.remove((x, y, z))
-                gp_count += 1
-                print(gp_count)
-
-    print(gp_count)
+                if angles.max() < max_angle:
+                    delaunay.insert([(x, y, z)])
+                    #unprocessed_points.remove((x, y, z))
+                    gp_count += 1
+                    print(gp_count)
 
     return
