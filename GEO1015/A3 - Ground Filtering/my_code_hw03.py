@@ -17,6 +17,7 @@ from scipy.spatial import cKDTree
 
 
 def point_cloud_to_grid(point_cloud, cell_size):
+    print('Thinning grid')
     ground_points, discarded_points = set(), set()
 
     X, Y, Z = point_cloud.X, point_cloud.Y, point_cloud.Z
@@ -42,8 +43,9 @@ def point_cloud_to_grid(point_cloud, cell_size):
             nonzero_indices = np.nonzero(cell_points)
             nonzero_elements = cell_points[nonzero_indices]
 
-            try:
+            if nonzero_elements.size:
                 min_index = np.argmin(nonzero_elements)
+
                 ground_points.add((nonzero_indices[0][min_index]+x_range[0],
                                    nonzero_indices[1][min_index]+y_range[0],
                                    nonzero_elements[min_index]))
@@ -52,13 +54,10 @@ def point_cloud_to_grid(point_cloud, cell_size):
                 non_min_y = np.delete(nonzero_indices[1], min_index)
                 non_min_elements = np.delete(nonzero_elements, min_index)
 
-                for index, x in enumerate(non_min_x):
-                    y = non_min_y[index]
-
-                    discarded_points.add((x + x_range[0], y + y_range[0], non_min_elements[index]))
-
-            except ValueError:
-                pass
+                # add points that aren't the local minimum to non-ground set
+                for index, x_cur in enumerate(non_min_x):
+                    y_cur = non_min_y[index]
+                    discarded_points.add((x_cur + x_range[0], y_cur + y_range[0], non_min_elements[index]))
 
     return ground_points, discarded_points
 
@@ -87,16 +86,47 @@ def filter_ground(jparams):
   """
     # load las file and relevant parameters
     point_cloud = File(jparams['input-las'], mode='r')
+    max_distance = jparams['gf-distance']
+    max_angle = jparams['gf-angle']
 
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'])
     ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
-    init_delaunay = startin.DT()
-    init_delaunay.insert(list(ground_points))
+
+    print('Constructing initial Delaunay')
+    delaunay = startin.DT()
+    delaunay.insert(list(ground_points))
+    #delaunay.write_obj('./start.obj')
+
+    print('Iteratively adding ground points')
+
+
+    gp_count = 0
 
     for x, y, z in unprocessed_points:
-        vert_proj_intersector = init_delaunay.locate(x, y)
-        print('-----')
-        print(vert_proj_intersector)
+        try:
+            perp_intersector = [x, y, delaunay.interpolate_tin_linear(px=x, py=y)]
 
+        except OSError:
+            continue
+
+        perp_distance = z - perp_intersector[2]
+
+        if perp_distance < max_distance:
+            # get vertices of triangles intersected by vertical projection and
+            # then calculate the euclidean distance to p for each vertex
+            triangle_vertices = [delaunay.get_point(p) for p in delaunay.locate(x, y)]
+            distances = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
+
+            # sohcahtoa
+            oh = [perp_distance/i for i in distances]
+            max_calculated_angle = np.max(np.asarray([math.degrees(math.acos(i)) if -1 < i < 1 else -math.inf for i in oh]))
+
+            if max_calculated_angle < max_angle:
+                delaunay.insert([(x, y, z)])
+                unprocessed_points.remove((x, y, z))
+                gp_count += 1
+                print(gp_count)
+
+    print(gp_count)
 
     return
