@@ -45,7 +45,7 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
                 min_i = np.argmin(non0_it)
                 gp.add((non0_i[0][min_i]+x_range[0]+X_min, non0_i[1][min_i]+y_range[0]+X_min, non0_it[min_i]))
 
-                # get points that are not the local minimum
+                # delete local minimum
                 non_min_x = np.delete(non0_i[0], min_i)
                 non_min_y = np.delete(non0_i[1], min_i)
                 non_min_elements = np.delete(non0_it, min_i)
@@ -117,20 +117,27 @@ def dt_to_grid(dt, cell_size):
     return grid
 
 
-def idw_to_grid(dt, cell_size):
+def idw_to_grid(dt, cell_size, radius, power):
     # converts Delaunay mesh to grid using IDW interpolation
 
     convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
     X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
     X_min, X_max, Y_min, Y_max = int(min(X)), int(max(X)), int(min(Y)), int(max(Y))
 
-    grid = np.empty(((X_max - X_min) // cell_size, (Y_max - Y_min) // cell_size))
+    grid = np.empty((int((X_max - X_min) // cell_size), int((Y_max - Y_min) // cell_size)))
 
-    for x in range((X_max - X_min) // cell_size):
-        for y in range((Y_max - Y_min) // cell_size):
+    tree = cKDTree([v[:2] for v in dt.all_vertices()])
+    print(tree)
+
+    for x in range(int((X_max - X_min) // cell_size)):
+        for y in range(int((Y_max - Y_min) // cell_size)):
             p = (x * cell_size + X_min, y * cell_size + Y_min)
 
             # INTERPOLATION HERE
+            nb = tree.query_ball_point(p, radius)
+            print(nb)
+
+    return grid
 
 
 def filter_ground(jparams):
@@ -200,6 +207,9 @@ def filter_ground(jparams):
     dt.write_obj('./end.obj')
 
     print('- Interpolating grid (Delaunay)')
-    delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
+    # delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
+
+    print('- Interpolating grid (Delaunay)')
+    idw_grid = idw_to_grid(dt, jparams['grid-cellsize'], jparams['idw-radius'], jparams['idw-power'])
 
     return
