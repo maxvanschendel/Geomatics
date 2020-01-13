@@ -8,11 +8,13 @@ from laspy.file import File
 import numpy as np
 import startin
 from scipy.spatial import cKDTree
+import matplotlib.pyplot as plt
 
 
 def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
 
-    ground_points, discarded_points = set(), set()
+    # create empty sets for ground points (gp) and discarded points (dp)
+    gp, dp = set(), set()
 
     X, Y, Z = point_cloud.X[::thinning_factor], point_cloud.Y[::thinning_factor], point_cloud.Z[::thinning_factor]
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
@@ -35,27 +37,25 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
             cell_points = point_cloud_ar[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
-            nonzero_indices = np.nonzero(cell_points)
-            nonzero_elements = cell_points[nonzero_indices]
+            non0_i = np.nonzero(cell_points)
+            non0_it = cell_points[non0_i]
 
-            if nonzero_elements.size:
+            if non0_it.size:
                 # add local minimum to ground points
-                min_index = np.argmin(nonzero_elements)
-                ground_points.add((nonzero_indices[0][min_index]+x_range[0],
-                                   nonzero_indices[1][min_index]+y_range[0],
-                                   nonzero_elements[min_index]))
+                min_i = np.argmin(non0_it)
+                gp.add((non0_i[0][min_i]+x_range[0]+X_min, non0_i[1][min_i]+y_range[0]+X_min, non0_it[min_i]))
 
                 # get points that are not the local minimum
-                non_min_x = np.delete(nonzero_indices[0], min_index)
-                non_min_y = np.delete(nonzero_indices[1], min_index)
-                non_min_elements = np.delete(nonzero_elements, min_index)
+                non_min_x = np.delete(non0_i[0], min_i)
+                non_min_y = np.delete(non0_i[1], min_i)
+                non_min_elements = np.delete(non0_it, min_i)
 
                 # add points that are not the local minimum to non-ground set
                 for index, x_cur in enumerate(non_min_x):
                     y_cur = non_min_y[index]
-                    discarded_points.add((x_cur + x_range[0], y_cur + y_range[0], non_min_elements[index]))
+                    dp.add((x_cur+x_range[0]+X_min, y_cur+y_range[0]+X_min, non_min_elements[index]))
 
-    return ground_points, discarded_points
+    return gp, dp
 
 
 def perpendicular_distance(p, tri):
@@ -64,11 +64,9 @@ def perpendicular_distance(p, tri):
     tri_normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
     tri_normal_unit = tri_normal / np.linalg.norm(tri_normal)
 
-    vec2p = p - tri[0]
-    vec2p_dot = np.dot(vec2p, tri_normal_unit)
+    vec2p_dot = np.dot(p - tri[0], tri_normal_unit)
 
     intersection = p - (tri_normal_unit * vec2p_dot)
-
     if point_in_tri(intersection, tri):
         return np.linalg.norm(intersection - p)
 
@@ -76,7 +74,7 @@ def perpendicular_distance(p, tri):
 
 
 def point_in_tri(p, tri):
-    # checks if point is on a face using barycentric coordinates
+    # checks if point is in a triangle using barycentric coordinates
 
     u, v, w = tri[1] - tri[0], tri[2] - tri[0], p - tri[0]
     n = np.cross(u, v)
@@ -92,6 +90,34 @@ def point_in_tri(p, tri):
 
 
 def dt_to_grid(dt, cell_size):
+    # converts delaunay mesh to grid by interpolating
+
+    convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
+    X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
+    X_min, X_max, Y_min, Y_max = int(min(X)), int(max(X)), int(min(Y)), int(max(Y))
+
+    grid = np.empty(((X_max - X_min)//cell_size, (Y_max - Y_min)//cell_size))
+
+    for x in range((X_max - X_min)//cell_size):
+        for y in range((Y_max - Y_min)//cell_size):
+            p = (x * cell_size + X_min, y * cell_size + Y_min)
+
+            try:
+                grid[x][y] = dt.interpolate_tin_linear(p[0], p[1])
+
+            except OSError:
+                # this means the point is outside the dt's convex hull
+                # solution: find closest point on convex hull and set value to that
+
+                # ch_cp = np.argmin(np.asarray([np.linalg.norm(np.asarray(i[0:2]) - np.asarray(p)) for i in convex_hull]))
+                # grid[x][y] = convex_hull[ch_cp][2]
+
+                pass
+
+    return grid
+
+
+def idw_to_grid(dt, cell_size):
     pass
 
 
@@ -160,5 +186,8 @@ def filter_ground(jparams):
 
     print('- Writing final mesh')
     dt.write_obj('./end.obj')
+
+    print('- Interpolating grid (Delaunay)')
+    delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
 
     return
