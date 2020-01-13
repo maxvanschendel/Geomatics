@@ -90,7 +90,7 @@ def point_in_tri(p, tri):
 
 
 def dt_to_grid(dt, cell_size):
-    # converts delaunay mesh to grid by interpolating
+    # converts Delaunay mesh to grid using TIN interpolation
 
     convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
     X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
@@ -118,7 +118,19 @@ def dt_to_grid(dt, cell_size):
 
 
 def idw_to_grid(dt, cell_size):
-    pass
+    # converts Delaunay mesh to grid using IDW interpolation
+
+    convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
+    X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
+    X_min, X_max, Y_min, Y_max = int(min(X)), int(max(X)), int(min(Y)), int(max(Y))
+
+    grid = np.empty(((X_max - X_min) // cell_size, (Y_max - Y_min) // cell_size))
+
+    for x in range((X_max - X_min) // cell_size):
+        for y in range((Y_max - Y_min) // cell_size):
+            p = (x * cell_size + X_min, y * cell_size + Y_min)
+
+            # INTERPOLATION HERE
 
 
 def filter_ground(jparams):
