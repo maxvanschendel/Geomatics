@@ -24,18 +24,18 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
     Y = Y - Y_min
 
     stacked_array = np.vstack((X, Y, Z)).transpose()
-    point_cloud_ar = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1))
+    flat_pc = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1), dtype=np.float32)
 
     # converts 1D array to a 2D X, Y array with Z elements
     for x, y, z in stacked_array:
-        if point_cloud_ar[x][y] == 0 or z < point_cloud_ar[x][y]:
-            point_cloud_ar[x][y] = z
+        if flat_pc[x][y] == 0 or z < flat_pc[x][y]:
+            flat_pc[x][y] = z
 
     # construct initial grid by slicing numpy array in chunks
     for x in range(int((X_max-X_min)/cell_size)):
         for y in range(int((Y_max-Y_min)/cell_size)):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
-            cell_points = point_cloud_ar[x_range[0]: x_range[1], y_range[0]: y_range[1]]
+            cell_points = flat_pc[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
             non0_i = np.nonzero(cell_points)
             non0_it = cell_points[non0_i]
@@ -126,16 +126,18 @@ def idw_to_grid(dt, cell_size, radius, power):
 
     grid = np.empty((int((X_max - X_min) // cell_size), int((Y_max - Y_min) // cell_size)))
 
-    tree = cKDTree([v[:2] for v in dt.all_vertices()])
-    print(tree)
+    vertices = dt.all_vertices()
+    tree = cKDTree([v[:2] for v in vertices])
 
     for x in range(int((X_max - X_min) // cell_size)):
         for y in range(int((Y_max - Y_min) // cell_size)):
             p = (x * cell_size + X_min, y * cell_size + Y_min)
 
             # INTERPOLATION HERE
-            nb = tree.query_ball_point(p, radius)
-            print(nb)
+            nb_i = tree.query_ball_point(p, radius)
+            nbs = [vertices[i] for i in nb_i]
+
+            print(nbs)
 
     return grid
 
