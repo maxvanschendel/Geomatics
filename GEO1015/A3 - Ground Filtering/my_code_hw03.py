@@ -32,8 +32,8 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
             flat_pc[x][y] = z
 
     # construct initial grid by slicing numpy array in chunks
-    for x in range(int((X_max-X_min)/cell_size)):
-        for y in range(int((Y_max-Y_min)/cell_size)):
+    for y in range(int((Y_max-Y_min)/cell_size)):
+        for x in range(int((X_max-X_min)/cell_size)):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
             cell_points = flat_pc[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
@@ -48,14 +48,42 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
                 # delete local minimum
                 non_min_x = np.delete(non0_i[0], min_i)
                 non_min_y = np.delete(non0_i[1], min_i)
-                non_min_elements = np.delete(non0_it, min_i)
+                non_min_z = np.delete(non0_it, min_i)
 
                 # add points that are not the local minimum to non-ground set
                 for index, x_cur in enumerate(non_min_x):
                     y_cur = non_min_y[index]
-                    dp.add((x_cur+x_range[0]+X_min, y_cur+y_range[0]+X_min, non_min_elements[index]))
+                    dp.add((x_cur+x_range[0]+X_min, y_cur+y_range[0]+X_min, non_min_z[index]))
 
     return gp, dp
+
+
+def grow_terrain(tin, p, gp, max_distance, max_angle):
+    keep_running = True
+    while keep_running:
+        keep_running = False
+
+        for x, y, z in p:
+            if (x, y, z) not in gp:
+                tri_v = [tin.get_point(p) for p in tin.locate(x, y)]
+
+                if tri_v:
+                    # check if perpendicular distance to triangle is below threshold
+                    p_cur = np.asarray([x, y, z])
+                    pdist = perpendicular_distance(p_cur, np.asarray(tri_v))
+
+                    # check if max angle between point and triangle vertices is below threshold
+                    if pdist is not None and pdist < max_distance:
+                        dvx = [euclidean_distance(p_cur, np.asarray(i)) for i in tri_v]
+                        v_angles = np.asarray([math.degrees(math.asin(pdist / i)) for i in dvx])
+
+                        # add point to dt and mark it as ground point, set flag to keep running
+                        if v_angles.max() < max_angle:
+                            tin.insert([(x, y, z)])
+                            gp.add((x, y, z))
+                            keep_running = True
+
+    return tin
 
 
 def euclidean_distance(a, b):
@@ -93,6 +121,13 @@ def point_in_tri(p, tri):
     return False
 
 
+def write_asc(grid, cell_size, fn, origin):
+    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE 0.0".format(
+                grid.shape[0], grid.shape[1], origin[0], origin[1], cell_size)
+
+    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', fmt='%1.1f')
+
+
 def dt_to_grid(dt, cell_size):
     # converts Delaunay mesh to grid using TIN interpolation
 
@@ -112,14 +147,7 @@ def dt_to_grid(dt, cell_size):
             except OSError:
                 pass
 
-    return grid
-
-
-def write_asc(grid, cell_size, fn, origin, precision):
-    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE -9999".format(
-                grid.shape[0], grid.shape[1], origin[0], origin[1], cell_size)
-
-    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', newline='\n', fmt='%1.4f')
+    return grid, (X_min, Y_max)
 
 
 def idw_to_grid(dt, cell_size, radius, power):
@@ -144,35 +172,7 @@ def idw_to_grid(dt, cell_size, radius, power):
                 grid[x][y] = sum([i[2]/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs]) / \
                              sum([1/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs])
 
-    return grid
-
-
-def grow_terrain(tin, p, gp, max_distance, max_angle):
-    keep_running = True
-    while keep_running:
-        keep_running = False
-
-        for x, y, z in p:
-            if (x, y, z) not in gp:
-                tri_v = [tin.get_point(p) for p in tin.locate(x, y)]
-
-                if tri_v:
-                    # check if perpendicular distance to triangle is below threshold
-                    p_cur = np.asarray([x, y, z])
-                    pdist = perpendicular_distance(p_cur, np.asarray(tri_v))
-
-                    # check if max angle between point and triangle vertices is below threshold
-                    if pdist is not None and pdist < max_distance:
-                        dvx = [euclidean_distance(p_cur, np.asarray(i)) for i in tri_v]
-                        v_angles = np.asarray([math.degrees(math.asin(pdist / i)) for i in dvx])
-
-                        # add point to dt and mark it as ground point, set flag to keep running
-                        if v_angles.max() < max_angle:
-                            tin.insert([(x, y, z)])
-                            gp.add((x, y, z))
-                            keep_running = True
-
-    return tin
+    return grid, (X_min, Y_max)
 
 
 def filter_ground(jparams):
@@ -199,7 +199,6 @@ def filter_ground(jparams):
     # load las file and relevant parameters
     point_cloud = File(jparams['input-las'], mode='r')
 
-
     print('- Flattening point cloud')
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
     ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
@@ -214,29 +213,6 @@ def filter_ground(jparams):
     print('- Growing terrain')
 
     dt = grow_terrain(dt, unprocessed_points, ground_points, jparams['gf-distance'], jparams['gf-angle'])
-    # keep_running = True
-    # while keep_running:
-    #     keep_running = False
-    #
-    #     for x, y, z in unprocessed_points:
-    #         if (x, y, z) not in ground_points:
-    #             # get vertices of triangle intersecting with vertical projection of point
-    #             triangle_vertices = [dt.get_point(p) for p in dt.locate(x, y)]
-    #
-    #             if triangle_vertices:
-    #                 # check if perpendicular distance to triangle is below threshold
-    #                 pdist = perpendicular_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
-    #
-    #                 if pdist is not None and pdist < max_distance:
-    #                     # check if max angle between point and triangle vertices is below threshold
-    #                     dvx = [euclidean_distance(np.asarray([x, y, z]), np.asarray(i)) for i in triangle_vertices]
-    #                     v_angles = np.asarray([math.degrees(math.asin(pdist/i)) for i in dvx])
-    #
-    #                     if v_angles.max() < max_angle:
-    #                         # add point to dt and mark it as ground point, set flag to keep running
-    #                         dt.insert([(x, y, z)])
-    #                         ground_points.add((x, y, z))
-    #                         keep_running = True
 
     print('- Writing final mesh')
     dt.write_obj('./end.obj')
@@ -245,18 +221,16 @@ def filter_ground(jparams):
     out_file = File(jparams['output-las'], mode='w', header=point_cloud.header)
     gp = dt.all_vertices()
     out_file.X, out_file.Y, out_file.Z = [p[0] for p in gp], [p[1] for p in gp], [p[2] for p in gp]
+
     out_file.close()
 
     print('- Creating raster (TIN)')
-    delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
-    write_asc(delaunay_grid, jparams['grid-cellsize'], jparams['output-grid-tin'], (0, 0), 2)
+    dg = dt_to_grid(dt, jparams['grid-cellsize'])
+
+    write_asc(dg[0], jparams['grid-cellsize'], jparams['output-grid-tin'], dg[1])
 
     print('- Creating raster (IDW)')
-    idw_grid = idw_to_grid(dt, jparams['grid-cellsize'], jparams['idw-radius'], jparams['idw-power'])
-    write_asc(idw_grid, jparams['grid-cellsize'], jparams['output-grid-idw'], (0, 0), 2)
-
-    # plt.imshow(idw_grid)
-    # plt.show()
-
+    ig = idw_to_grid(dt, jparams['grid-cellsize'], jparams['idw-radius'], jparams['idw-power'])
+    write_asc(ig[0], jparams['grid-cellsize'], jparams['output-grid-idw'], ig[1])
 
     return
