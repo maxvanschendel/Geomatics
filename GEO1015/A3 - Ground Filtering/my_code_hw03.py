@@ -1,7 +1,7 @@
 # -- mycode_hw03.py
 # -- GEO1015.2019--hw03
-# -- [YOUR NAME]
-# -- [YOUR STUDENT NUMBER]
+# -- Max van Schendel
+# -- 4384644
 
 import math
 from laspy.file import File
@@ -122,10 +122,10 @@ def point_in_tri(p, tri):
 
 
 def write_asc(grid, cell_size, fn, origin):
-    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE 0.0".format(
-                grid.shape[0], grid.shape[1], origin[0], origin[1], cell_size)
+    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE 0".format(
+                grid.shape[1], grid.shape[0], origin[0], origin[1], cell_size)
 
-    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', fmt='%1.1f')
+    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', fmt='%i')
 
 
 def dt_to_grid(dt, cell_size):
