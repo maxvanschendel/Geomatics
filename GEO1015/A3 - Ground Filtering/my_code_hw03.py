@@ -75,10 +75,10 @@ def grow_terrain(tin, p, gp, max_distance, max_angle):
                     # check if max angle between point and triangle vertices is below threshold
                     if pdist is not None and pdist < max_distance:
                         dvx = [euclidean_distance(p_cur, np.asarray(i)) for i in tri_v]
-                        v_angles = np.asarray([math.degrees(math.asin(pdist / i)) for i in dvx])
+                        v_angles = [math.degrees(math.asin(pdist / i)) for i in dvx]
 
                         # add point to dt and mark it as ground point, set flag to keep running
-                        if v_angles.max() < max_angle:
+                        if max(v_angles) < max_angle:
                             tin.insert([(x, y, z)])
                             gp.add((x, y, z))
                             keep_running = True
@@ -207,26 +207,17 @@ def filter_ground(jparams):
     dt = startin.DT()
     dt.insert(list(ground_points))
 
-    print('- Writing initial mesh')
-    dt.write_obj('./start.obj')
-
     print('- Growing terrain')
-
     dt = grow_terrain(dt, unprocessed_points, ground_points, jparams['gf-distance'], jparams['gf-angle'])
-
-    print('- Writing final mesh')
-    dt.write_obj('./end.obj')
 
     print('- Writing labeled point cloud')
     out_file = File(jparams['output-las'], mode='w', header=point_cloud.header)
     gp = dt.all_vertices()
     out_file.X, out_file.Y, out_file.Z = [p[0] for p in gp], [p[1] for p in gp], [p[2] for p in gp]
-
     out_file.close()
 
     print('- Creating raster (TIN)')
     dg = dt_to_grid(dt, jparams['grid-cellsize'])
-
     write_asc(dg[0], jparams['grid-cellsize'], jparams['output-grid-tin'], dg[1])
 
     print('- Creating raster (IDW)')
