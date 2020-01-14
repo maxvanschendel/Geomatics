@@ -58,17 +58,21 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
     return gp, dp
 
 
+def euclidean_distance(a, b):
+    return np.linalg.norm(a - b)
+
+
 def perpendicular_distance(p, tri):
     # finds perpendicular distance of point to a triangle
+    # returns none if projection falls outside triangle
 
-    tri_normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
-    tri_normal_unit = tri_normal / np.linalg.norm(tri_normal)
+    normal = np.cross(tri[0] - tri[1], tri[2] - tri[1])
+    normal_hat = normal / np.linalg.norm(normal)
+    vec2p_dot = np.dot(p - tri[0], normal_hat)
+    plane_int = p - (normal_hat * vec2p_dot)
 
-    vec2p_dot = np.dot(p - tri[0], tri_normal_unit)
-
-    intersection = p - (tri_normal_unit * vec2p_dot)
-    if point_in_tri(intersection, tri):
-        return np.linalg.norm(intersection - p)
+    if point_in_tri(plane_int, tri):
+        return euclidean_distance(plane_int, p)
 
     return None
 
@@ -106,15 +110,16 @@ def dt_to_grid(dt, cell_size):
                 grid[x][y] = dt.interpolate_tin_linear(p[0], p[1])
 
             except OSError:
-                # this means the point is outside the dt's convex hull
-                # solution: find closest point on convex hull and set value to that
-
-                # ch_cp = np.argmin(np.asarray([np.linalg.norm(np.asarray(i[0:2]) - np.asarray(p)) for i in convex_hull]))
-                # grid[x][y] = convex_hull[ch_cp][2]
-
                 pass
 
     return grid
+
+
+def write_asc(grid, cell_size, fn, origin, precision):
+    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE -9999".format(
+                grid.shape[0], grid.shape[1], origin[0], origin[1], cell_size)
+
+    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', newline='\n', fmt='%1.4f')
 
 
 def idw_to_grid(dt, cell_size, radius, power):
@@ -129,27 +134,53 @@ def idw_to_grid(dt, cell_size, radius, power):
     vertices = dt.all_vertices()
     tree = cKDTree([v[:2] for v in vertices])
 
+    # iterate over grid, interpolating values based on corresponding point in TIN (p)
     for x in range(int((X_max - X_min) // cell_size)):
         for y in range(int((Y_max - Y_min) // cell_size)):
             p = (x * cell_size + X_min, y * cell_size + Y_min)
+            nbs = [vertices[i] for i in tree.query_ball_point(p, radius)]
 
-            # INTERPOLATION HERE
-            nb_i = tree.query_ball_point(p, radius)
-            nbs = [vertices[i] for i in nb_i]
-
-            print(nbs)
+            if nbs:
+                grid[x][y] = sum([i[2]/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs]) / \
+                             sum([1/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs])
 
     return grid
 
 
+def grow_terrain(tin, p, gp, max_distance, max_angle):
+    keep_running = True
+    while keep_running:
+        keep_running = False
+
+        for x, y, z in p:
+            if (x, y, z) not in gp:
+                tri_v = [tin.get_point(p) for p in tin.locate(x, y)]
+
+                if tri_v:
+                    # check if perpendicular distance to triangle is below threshold
+                    p_cur = np.asarray([x, y, z])
+                    pdist = perpendicular_distance(p_cur, np.asarray(tri_v))
+
+                    # check if max angle between point and triangle vertices is below threshold
+                    if pdist is not None and pdist < max_distance:
+                        dvx = [euclidean_distance(p_cur, np.asarray(i)) for i in tri_v]
+                        v_angles = np.asarray([math.degrees(math.asin(pdist / i)) for i in dvx])
+
+                        # add point to dt and mark it as ground point, set flag to keep running
+                        if v_angles.max() < max_angle:
+                            tin.insert([(x, y, z)])
+                            gp.add((x, y, z))
+                            keep_running = True
+
+    return tin
+
+
 def filter_ground(jparams):
     """
-  !!! TO BE COMPLETED !!!
-    
-  Function that reads a LAS file, performs thinning, then performs ground filtering, and creates a two rasters of the ground points. One with IDW interpolation and one with TIN interpolation.
 
-  !!! You are free to subdivide the functionality of this function into several functions !!!
-    
+  Function that reads a LAS file, performs thinning, then performs ground filtering,
+  and creates a two rasters of the ground points. One with IDW interpolation and one with TIN interpolation.
+
   Input:
     a dictionary jparams with all the parameters that are to be used in this function:
       - input-las:        path to input .las file,
@@ -164,10 +195,10 @@ def filter_ground(jparams):
       - output-grid-tin:  filepath to the output grid with TIN interpolation,
       - output-grid-idw:  filepath to the output grid with IDW interpolation
   """
+
     # load las file and relevant parameters
     point_cloud = File(jparams['input-las'], mode='r')
-    max_distance = jparams['gf-distance']
-    max_angle = jparams['gf-angle']
+
 
     print('- Flattening point cloud')
     gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
@@ -181,37 +212,51 @@ def filter_ground(jparams):
     dt.write_obj('./start.obj')
 
     print('- Growing terrain')
-    keep_running = True
-    while keep_running:
-        keep_running = False
 
-        for x, y, z in unprocessed_points:
-            if (x, y, z) not in ground_points:
-                # get vertices of triangle intersecting with vertical projection of point
-                triangle_vertices = [dt.get_point(p) for p in dt.locate(x, y)]
-
-                if triangle_vertices:
-                    # check if perpendicular distance to triangle is below threshold
-                    pdist = perpendicular_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
-
-                    if pdist is not None and pdist < max_distance:
-                        # check if max angle between point and triangle vertices is below threshold
-                        dvx = [np.linalg.norm(np.asarray([x, y, z]) - np.asarray(i)) for i in triangle_vertices]
-                        v_angles = np.asarray([math.degrees(math.asin(pdist/i)) for i in dvx])
-
-                        if v_angles.max() < max_angle:
-                            # add point to dt and mark it as ground point, set flag to keep running
-                            dt.insert([(x, y, z)])
-                            ground_points.add((x, y, z))
-                            keep_running = True
+    dt = grow_terrain(dt, unprocessed_points, ground_points, jparams['gf-distance'], jparams['gf-angle'])
+    # keep_running = True
+    # while keep_running:
+    #     keep_running = False
+    #
+    #     for x, y, z in unprocessed_points:
+    #         if (x, y, z) not in ground_points:
+    #             # get vertices of triangle intersecting with vertical projection of point
+    #             triangle_vertices = [dt.get_point(p) for p in dt.locate(x, y)]
+    #
+    #             if triangle_vertices:
+    #                 # check if perpendicular distance to triangle is below threshold
+    #                 pdist = perpendicular_distance(np.asarray([x, y, z]), np.asarray(triangle_vertices))
+    #
+    #                 if pdist is not None and pdist < max_distance:
+    #                     # check if max angle between point and triangle vertices is below threshold
+    #                     dvx = [euclidean_distance(np.asarray([x, y, z]), np.asarray(i)) for i in triangle_vertices]
+    #                     v_angles = np.asarray([math.degrees(math.asin(pdist/i)) for i in dvx])
+    #
+    #                     if v_angles.max() < max_angle:
+    #                         # add point to dt and mark it as ground point, set flag to keep running
+    #                         dt.insert([(x, y, z)])
+    #                         ground_points.add((x, y, z))
+    #                         keep_running = True
 
     print('- Writing final mesh')
     dt.write_obj('./end.obj')
 
-    print('- Interpolating grid (Delaunay)')
-    # delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
+    print('- Writing labeled point cloud')
+    out_file = File(jparams['output-las'], mode='w', header=point_cloud.header)
+    gp = dt.all_vertices()
+    out_file.X, out_file.Y, out_file.Z = [p[0] for p in gp], [p[1] for p in gp], [p[2] for p in gp]
+    out_file.close()
 
-    print('- Interpolating grid (Delaunay)')
+    print('- Creating raster (TIN)')
+    delaunay_grid = dt_to_grid(dt, jparams['grid-cellsize'])
+    write_asc(delaunay_grid, jparams['grid-cellsize'], jparams['output-grid-tin'], (0, 0), 2)
+
+    print('- Creating raster (IDW)')
     idw_grid = idw_to_grid(dt, jparams['grid-cellsize'], jparams['idw-radius'], jparams['idw-power'])
+    write_asc(idw_grid, jparams['grid-cellsize'], jparams['output-grid-idw'], (0, 0), 2)
+
+    # plt.imshow(idw_grid)
+    # plt.show()
+
 
     return
