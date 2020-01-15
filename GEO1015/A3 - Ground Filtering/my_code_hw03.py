@@ -11,12 +11,12 @@ from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 
 
-def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
+def point_cloud_to_grid(point_cloud, cell_size, tf):
 
     # create empty sets for ground points (gp) and discarded points (dp)
     gp, dp = set(), set()
 
-    X, Y, Z = point_cloud.X[::thinning_factor], point_cloud.Y[::thinning_factor], point_cloud.Z[::thinning_factor]
+    X, Y, Z = point_cloud.X[::tf], point_cloud.Y[::tf], point_cloud.Z[::tf]
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
 
     # move (X_min, Y_min) to (0, 0)
@@ -32,8 +32,8 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
             flat_pc[x][y] = z
 
     # construct initial grid by slicing numpy array in chunks
-    for y in range(int((Y_max-Y_min)/cell_size)):
-        for x in range(int((X_max-X_min)/cell_size)):
+    for y in range(int((Y_max-Y_min) / cell_size)):
+        for x in range(int((X_max-X_min) / cell_size)):
             x_range, y_range = (x*cell_size, (x+1)*cell_size), (y*cell_size, (y+1)*cell_size)
             cell_points = flat_pc[x_range[0]: x_range[1], y_range[0]: y_range[1]]
 
@@ -43,7 +43,9 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
             if non0_it.size:
                 # add local minimum to ground points
                 min_i = np.argmin(non0_it)
-                gp.add((non0_i[0][min_i]+x_range[0]+X_min, non0_i[1][min_i]+y_range[0]+X_min, non0_it[min_i]))
+                gp.add(((non0_i[0][min_i]+x_range[0]+X_min),
+                        (non0_i[1][min_i]+y_range[0]+Y_min),
+                        non0_it[min_i]))
 
                 # delete local minimum
                 non_min_x = np.delete(non0_i[0], min_i)
@@ -53,9 +55,11 @@ def point_cloud_to_grid(point_cloud, cell_size, thinning_factor):
                 # add points that are not the local minimum to non-ground set
                 for index, x_cur in enumerate(non_min_x):
                     y_cur = non_min_y[index]
-                    dp.add((x_cur+x_range[0]+X_min, y_cur+y_range[0]+X_min, non_min_z[index]))
+                    dp.add(((x_cur+x_range[0]+X_min),
+                            (y_cur+y_range[0]+Y_min),
+                            non_min_z[index]))
 
-    return gp, dp
+    return gp, dp, (X_min, Y_max)
 
 
 def grow_terrain(tin, p, gp, max_distance, max_angle):
@@ -121,17 +125,19 @@ def point_in_tri(p, tri):
     return False
 
 
-def write_asc(grid, cell_size, fn, origin):
-    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE 0".format(
+# write numpy array to
+def write_asc(grid, cell_size, fn, origin, depth):
+    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE -9999".format(
                 grid.shape[1], grid.shape[0], origin[0], origin[1], cell_size)
 
-    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', fmt='%i')
+    grid = np.nan_to_num(grid, nan=-9999)
+    np.savetxt(fn, grid, delimiter=' ', header=header, comments='', fmt='%1.{}f'.format(depth))
 
 
-def dt_to_grid(dt, cell_size):
+def tin_interp(tin, cell_size):
     # converts Delaunay mesh to grid using TIN interpolation
 
-    convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
+    convex_hull = [tin.get_point(p) for p in tin.convex_hull()]
     X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
     X_min, X_max, Y_min, Y_max = int(min(X)), int(max(X)), int(min(Y)), int(max(Y))
 
@@ -142,24 +148,23 @@ def dt_to_grid(dt, cell_size):
             p = (x * cell_size + X_min, y * cell_size + Y_min)
 
             try:
-                grid[x][y] = dt.interpolate_tin_linear(p[0], p[1])
-
+                grid[x][y] = tin.interpolate_tin_linear(p[0], p[1])
             except OSError:
-                pass
+                grid[x][y] = np.nan
 
-    return grid, (X_min, Y_max)
+    return grid, (X_min, Y_min)
 
 
-def idw_to_grid(dt, cell_size, radius, power):
+def idw_interp(tin, cell_size, radius, power):
     # converts Delaunay mesh to grid using IDW interpolation
 
-    convex_hull = [dt.get_point(p) for p in dt.convex_hull()]
+    convex_hull = [tin.get_point(p) for p in tin.convex_hull()]
     X, Y = [p[0] for p in convex_hull], [p[1] for p in convex_hull]
     X_min, X_max, Y_min, Y_max = int(min(X)), int(max(X)), int(min(Y)), int(max(Y))
 
     grid = np.empty((int((X_max - X_min) // cell_size), int((Y_max - Y_min) // cell_size)))
 
-    vertices = dt.all_vertices()
+    vertices = tin.all_vertices()
     tree = cKDTree([v[:2] for v in vertices])
 
     # iterate over grid, interpolating values based on corresponding point in TIN (p)
@@ -171,8 +176,10 @@ def idw_to_grid(dt, cell_size, radius, power):
             if nbs:
                 grid[x][y] = sum([i[2]/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs]) / \
                              sum([1/euclidean_distance(np.asarray(i[:2]), np.asarray(p))**power for i in nbs])
+            else:
+                grid[x][y] = np.nan
 
-    return grid, (X_min, Y_max)
+    return grid, (X_min, Y_min)
 
 
 def filter_ground(jparams):
@@ -198,30 +205,50 @@ def filter_ground(jparams):
 
     # load las file and relevant parameters
     point_cloud = File(jparams['input-las'], mode='r')
+    scale = point_cloud.header.scale[0]
 
     print('- Flattening point cloud')
-    gridded_pc = point_cloud_to_grid(point_cloud, jparams['gf-cellsize'], jparams['thinning-factor'])
-    ground_points, unprocessed_points = gridded_pc[0], gridded_pc[1]
+    gridded_pc = point_cloud_to_grid(point_cloud=point_cloud, tf=jparams['thinning-factor'],
+                                     cell_size=int(jparams['gf-cellsize'] / scale))
 
-    print('- Creating initial mesh')
-    dt = startin.DT()
-    dt.insert(list(ground_points))
+    ground_points, unprocessed_points, ll_origin = gridded_pc[0], gridded_pc[1], gridded_pc[2]
 
     print('- Growing terrain')
-    dt = grow_terrain(dt, unprocessed_points, ground_points, jparams['gf-distance'], jparams['gf-angle'])
+    dt = startin.DT()
+    dt.insert(list(ground_points))
+    dt = grow_terrain(tin=dt, p=unprocessed_points, gp=ground_points,
+                      max_distance=int(jparams['gf-distance'] / scale),
+                      max_angle=jparams['gf-angle'])
 
     print('- Writing labeled point cloud')
     out_file = File(jparams['output-las'], mode='w', header=point_cloud.header)
     gp = dt.all_vertices()
-    out_file.X, out_file.Y, out_file.Z = [p[0] for p in gp], [p[1] for p in gp], [p[2] for p in gp]
+
+    out_file.X = [p[0] for p in gp]
+    out_file.Y = [p[1] for p in gp]
+    out_file.Z = [p[2] for p in gp]
     out_file.close()
 
-    print('- Creating raster (TIN)')
-    dg = dt_to_grid(dt, jparams['grid-cellsize'])
-    write_asc(dg[0], jparams['grid-cellsize'], jparams['output-grid-tin'], dg[1])
+    print('- Creating raster (TIN)\n\t- Interpolating (TIN)')
+    dg = tin_interp(tin=dt, cell_size=int(jparams['grid-cellsize'] / scale))
 
-    print('- Creating raster (IDW)')
-    ig = idw_to_grid(dt, jparams['grid-cellsize'], jparams['idw-radius'], jparams['idw-power'])
-    write_asc(ig[0], jparams['grid-cellsize'], jparams['output-grid-idw'], ig[1])
+    print('\t- Writing Esri Ascii (TIN)')
+    write_asc(grid=dg[0] * scale,
+              cell_size=jparams['grid-cellsize'],
+              fn=jparams['output-grid-tin'],
+              origin=dg[1],
+              depth=2)
+
+    print('- Creating raster (IDW)\n\t- Interpolating (IDW)')
+    ig = idw_interp(tin=dt, cell_size=int(jparams['grid-cellsize'] / scale),
+                    radius=jparams['idw-radius'] / scale, 
+                    power=jparams['idw-power'])
+
+    print('\t- Writing Esri Ascii (IDW)')
+    write_asc(grid=ig[0] * scale,
+              cell_size=jparams['grid-cellsize'],
+              fn=jparams['output-grid-idw'],
+              origin=ig[1],
+              depth=2)
 
     return
