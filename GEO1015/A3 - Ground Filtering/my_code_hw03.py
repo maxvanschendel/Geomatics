@@ -8,7 +8,6 @@ from laspy.file import File
 import numpy as np
 import startin
 from scipy.spatial import cKDTree
-import matplotlib.pyplot as plt
 
 
 def point_cloud_to_grid(point_cloud, cell_size, tf):

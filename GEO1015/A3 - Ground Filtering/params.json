@@ -1,10 +1,10 @@
 {
     "input-las": "ahn3/rural.las",
     "thinning-factor": 50,
-    "gf-cellsize": 100,
+    "gf-cellsize": 10,
     "gf-distance": 2,
     "gf-angle": 20,
-    "idw-radius": 5,
+    "idw-radius": 10,
     "idw-power": 2,
     "output-las": "out.las",
     "grid-cellsize": 0.5,
