@@ -118,7 +118,7 @@ def point_in_tri(p, tri):
     beta = np.dot(np.cross(w, v), n) / np.dot(n, n)
     alpha = 1 - gamma - beta
 
-    if 0 <= alpha <= 1 and 0 <= beta <= 1 and 0 <= gamma <= 1:
+    if alpha >= 0 and beta >= 0 and gamma >= 0:
         return True
 
     return False
@@ -226,6 +226,10 @@ def filter_ground(jparams):
     out_file.X = [p[0] for p in gp]
     out_file.Y = [p[1] for p in gp]
     out_file.Z = [p[2] for p in gp]
+
+    print(sorted(out_file.X)[0])
+    print(sorted(out_file.Y)[0])
+    print(sorted(out_file.Z)[0])
     out_file.close()
 
     print('- Creating raster (TIN)\n\t- Interpolating (TIN)')
