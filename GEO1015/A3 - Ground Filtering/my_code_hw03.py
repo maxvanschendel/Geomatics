@@ -16,6 +16,7 @@ def point_cloud_to_grid(point_cloud, cell_size, tf):
     gp, dp = set(), set()
 
     X, Y, Z = point_cloud.X[::tf], point_cloud.Y[::tf], point_cloud.Z[::tf]
+
     X_min, X_max, Y_min, Y_max = X.min(), X.max(), Y.min(), Y.max()
 
     # move (X_min, Y_min) to (0, 0)
@@ -42,9 +43,7 @@ def point_cloud_to_grid(point_cloud, cell_size, tf):
             if non0_it.size:
                 # add local minimum to ground points
                 min_i = np.argmin(non0_it)
-                gp.add(((non0_i[0][min_i]+x_range[0]+X_min),
-                        (non0_i[1][min_i]+y_range[0]+Y_min),
-                        non0_it[min_i]))
+                gp.add((non0_i[0][min_i]+x_range[0], non0_i[1][min_i]+y_range[0], non0_it[min_i]))
 
                 # delete local minimum
                 non_min_x = np.delete(non0_i[0], min_i)
@@ -54,15 +53,14 @@ def point_cloud_to_grid(point_cloud, cell_size, tf):
                 # add points that are not the local minimum to non-ground set
                 for index, x_cur in enumerate(non_min_x):
                     y_cur = non_min_y[index]
-                    dp.add(((x_cur+x_range[0]+X_min),
-                            (y_cur+y_range[0]+Y_min),
-                            non_min_z[index]))
+                    dp.add((x_cur+x_range[0], y_cur+y_range[0], non_min_z[index]))
 
     return gp, dp, (X_min, Y_max)
 
 
 def grow_terrain(tin, p, gp, max_distance, max_angle):
     keep_running = True
+    gp = set()
     while keep_running:
         keep_running = False
 
@@ -220,26 +218,20 @@ def filter_ground(jparams):
                       max_angle=jparams['gf-angle'])
 
     print('- Writing labeled point cloud')
-    out_file = File(jparams['output-las'], mode='w', header=point_cloud.header)
-    gp = dt.all_vertices()
-
-    out_file.X = [p[0] for p in gp]
-    out_file.Y = [p[1] for p in gp]
-    out_file.Z = [p[2] for p in gp]
-
-    print(sorted(out_file.X)[0])
-    print(sorted(out_file.Y)[0])
-    print(sorted(out_file.Z)[0])
-    out_file.close()
+    with File(jparams['output-las'], mode='w', header=point_cloud.header) as out_file:
+        gp = dt.all_vertices()[1:]
+        out_file.X = [p[0] for p in gp]
+        out_file.Y = [p[1] for p in gp]
+        out_file.Z = [p[2] for p in gp]
 
     print('- Creating raster (TIN)\n\t- Interpolating (TIN)')
     dg = tin_interp(tin=dt, cell_size=int(jparams['grid-cellsize'] / scale))
 
     print('\t- Writing Esri Ascii (TIN)')
-    write_asc(grid=dg[0] * scale,
+    write_asc(grid=np.rot90(dg[0]) * scale,
               cell_size=jparams['grid-cellsize'],
               fn=jparams['output-grid-tin'],
-              origin=dg[1],
+              origin=(point_cloud.header.min[0]+dg[1][0]*scale, point_cloud.header.min[1] + dg[1][1]*scale),
               depth=2)
 
     print('- Creating raster (IDW)\n\t- Interpolating (IDW)')
@@ -248,10 +240,10 @@ def filter_ground(jparams):
                     power=jparams['idw-power'])
 
     print('\t- Writing Esri Ascii (IDW)')
-    write_asc(grid=ig[0] * scale,
+    write_asc(grid=np.rot90(ig[0]) * scale,
               cell_size=jparams['grid-cellsize'],
               fn=jparams['output-grid-idw'],
-              origin=ig[1],
+              origin=(point_cloud.header.min[0]+ig[1][0]*scale, point_cloud.header.min[1]+ig[1][1]*scale),
               depth=2)
 
     return
