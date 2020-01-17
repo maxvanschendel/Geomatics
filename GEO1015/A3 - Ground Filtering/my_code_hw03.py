@@ -22,6 +22,7 @@ def point_cloud_to_grid(point_cloud, cell_size, tf):
     # move (X_min, Y_min) to (0, 0)
     X = X - X_min
     Y = Y - Y_min
+    Z = Z - Z.min()
 
     stacked_array = np.vstack((X, Y, Z)).transpose()
     flat_pc = np.zeros((X_max - X_min + 1, Y_max - Y_min + 1), dtype=np.float32)
@@ -124,7 +125,7 @@ def point_in_tri(p, tri):
 
 # write numpy array to
 def write_asc(grid, cell_size, fn, origin, depth):
-    header = "NCOLS {}\nNROWS {}\nXLLCORNER {}\nYLLCORNER {}\nCELLSIZE {}\nNODATA_VALUE -9999".format(
+    header = "NCOLS {}\nNROWS {}\nXLLCENTER {}\nYLLCENTER {}\nCELLSIZE {}\nNODATA_VALUE -9999".format(
                 grid.shape[1], grid.shape[0], origin[0], origin[1], cell_size)
 
     grid = np.nan_to_num(grid, nan=-9999)
@@ -203,7 +204,7 @@ def filter_ground(jparams):
     # load las file and relevant parameters
     point_cloud = File(jparams['input-las'], mode='r')
     scale = point_cloud.header.scale[0]
-
+    print(point_cloud.header.min)
     print('- Flattening point cloud')
     gridded_pc = point_cloud_to_grid(point_cloud=point_cloud, tf=jparams['thinning-factor'],
                                      cell_size=int(jparams['gf-cellsize'] / scale))
@@ -217,7 +218,7 @@ def filter_ground(jparams):
                       max_distance=int(jparams['gf-distance'] / scale),
                       max_angle=jparams['gf-angle'])
 
-    print('- Writing labeled point cloud')
+    print('- Writing point cloud')
     with File(jparams['output-las'], mode='w', header=point_cloud.header) as out_file:
         gp = dt.all_vertices()[1:]
         out_file.X = [p[0] for p in gp]
@@ -228,7 +229,7 @@ def filter_ground(jparams):
     dg = tin_interp(tin=dt, cell_size=int(jparams['grid-cellsize'] / scale))
 
     print('\t- Writing Esri Ascii (TIN)')
-    write_asc(grid=np.rot90(dg[0]) * scale,
+    write_asc(grid=np.rot90(dg[0]) * scale + point_cloud.header.min[2],
               cell_size=jparams['grid-cellsize'],
               fn=jparams['output-grid-tin'],
               origin=(point_cloud.header.min[0]+dg[1][0]*scale, point_cloud.header.min[1] + dg[1][1]*scale),
@@ -240,7 +241,7 @@ def filter_ground(jparams):
                     power=jparams['idw-power'])
 
     print('\t- Writing Esri Ascii (IDW)')
-    write_asc(grid=np.rot90(ig[0]) * scale,
+    write_asc(grid=np.rot90(ig[0]) * scale + point_cloud.header.min[2],
               cell_size=jparams['grid-cellsize'],
               fn=jparams['output-grid-idw'],
               origin=(point_cloud.header.min[0]+ig[1][0]*scale, point_cloud.header.min[1]+ig[1][1]*scale),
