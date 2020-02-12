@@ -1,0 +1,13 @@
+{
+    "input-las": "ahn3/rural.las",
+    "thinning-factor": 25,
+    "gf-cellsize": 20,
+    "gf-distance": 1,
+    "gf-angle": 10,
+    "idw-radius": 10,
+    "idw-power": 2,
+    "output-las": "out.las",
+    "grid-cellsize": 0.5,
+    "output-grid-tin": "out-tin.asc",
+    "output-grid-idw": "out-idw.asc"
+}
