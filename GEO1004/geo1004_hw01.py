@@ -19,8 +19,8 @@ class Face:
         self.a, self.b, self.c = vxs[0], vxs[1], vxs[2]
         self.vxs = set(vxs)
         self.nbs = set()
+        self.seads_cells = set()
         self.processed = False
-        self.seads_cells = None
 
     def flip(self):
         self.a, self.c = self.c, self.a
@@ -65,13 +65,14 @@ class Mesh:
     def construct_seads(self, shape):
         bbox = self.bbox()
         bbox_origin = bbox[0]
-
-        grid = np.zeros(shape, dtype=object)
-        grid = np.expand_dims(grid, axis=3)
         cell_size = (bbox[1] - bbox[0]) / shape
 
         for f in self.faces:
             tri_bbox = np.floor((f.bbox() - bbox_origin)/cell_size).astype(int)
+            for x in range(tri_bbox[0][0], tri_bbox[1][0]+1):
+                for y in range(tri_bbox[0][1], tri_bbox[1][1]+1):
+                    for z in range(tri_bbox[0][2], tri_bbox[1][2]+1):
+                        f.seads_cells.add((x, y, z))
 
     def conform_normals(self):
         processed = set()
