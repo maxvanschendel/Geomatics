@@ -53,48 +53,74 @@ class Mesh:
     def __init__(self):
         self.faces = set()
 
+    def get_all_vertices(self):
+        return np.concatenate([f.get_vertices() for f in self.faces])
+
     def bbox(self):
-        return compute_bbox(np.concatenate([f.get_vertices() for f in self.faces]))
+        return compute_bbox(self.get_all_vertices())
 
-    def conform_normals(self):
-        init_face = self.faces.pop()
-        centroid = init_face.centroid()
-
-        ray_origin = random_points_on_sphere(r=250, n=1)[0] + centroid
-        ray = Ray((centroid - ray_origin), ray_origin)
+    def ray_cast(self, ray):
         intersections = []
 
         for g in self.faces:
-            inter = ray_intersect(ray.direction, ray.origin, g, epsilon=0.0000001)
+            inter = ray_intersect(ray.direction, ray.origin, g, epsilon=0.000000001)
 
             if inter is not None:
                 dist = np.linalg.norm(inter - ray.origin)
                 intersections.append((dist, g))
 
+        return sorted(intersections, key=lambda x: x[0])
+
+    def conform_normals(self):
+        init_face = list(self.faces)[0]
+        centroid = init_face.centroid()
+        ray_origin = random_points_on_sphere(r=200, n=1)[0] + centroid
+        ray = Ray((centroid - ray_origin), ray_origin)
+
+        sorted_intersection = self.ray_cast(ray)
+
         # check if normal is correct, otherwise flips the face
-        for i in enumerate(sorted(intersections, key=lambda x: x[0])):
+        for i in enumerate(sorted_intersection):
             if i[0] % 2 == 0:
-                if np.dot(ray.direction, i[1][1].normal()) > 0:
+                if np.dot(ray.direction, i[1][1].normal()) >= 0:
                     i[1][1].flip()
             else:
-                if np.dot(ray.direction, i[1][1].normal()) < 0:
+                if np.dot(ray.direction, i[1][1].normal()) <= 0:
                     i[1][1].flip()
 
         processed = set()
-        search_queue = {intersections[0][1]}
+        search_queue = {sorted_intersection[0][1]}
 
         while search_queue:
             face = search_queue.pop()
             for nb in face.nbs:
                 if nb not in processed and nb not in search_queue:
-                    search_queue.add(nb), processed.add(nb)
+                    search_queue.add(nb)
 
-                    if face.concavity(nb) <= 0:
-                        if np.dot(face.normal(), nb.normal()) <= 0:
+                    if face.concavity(nb) > 0:
+                        if np.dot(face.normal(), nb.normal()) < 0:
                             nb.flip()
+
+                    elif face.concavity(nb) < 0:
+                        if np.dot(face.normal(), nb.normal()) > 0:
+                            nb.flip()
+
                     else:
-                        if np.dot(face.normal(), nb.normal()) >= 0:
-                            nb.flip()
+                        centroid = nb.centroid()
+                        ray_origin = random_points_on_sphere(r=5, n=1)[0] + centroid
+                        ray = Ray((centroid - ray_origin), ray_origin)
+
+                        sorted_intersection = [i[1] for i in self.ray_cast(ray)]
+
+                        # check if normal is correct, otherwise flips the face
+                        if sorted_intersection.index(nb) % 2 == 0:
+                            if np.dot(ray.direction, nb.normal()) >= 0:
+                                nb.flip()
+                        else:
+                            if np.dot(ray.direction, nb.normal()) <= 0:
+                                nb.flip()
+
+            processed.add(face)
 
 
 class Ray:
@@ -127,19 +153,44 @@ def parse_obj(fn):
 
 
 def write_obj(meshes, fn):
-    pass
+    all_verts = []
+
+    for m in meshes:
+        faces = list(m.faces)
+        vertices = list(set().union(*[i.vxs for i in faces]))
+
+        for i in vertices:
+            all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
+
+    with open(fn, 'w') as obj_file:
+        for v in all_verts:
+            obj_file.write(f'v {v}\n')
+
+        for m in enumerate(meshes):
+            faces = list(m[1].faces)
+            obj_file.write(f'o {m[0]+1}\n')
+
+            for f in faces:
+                a, b, c = ' '.join([format(x, '.2f') for x in f.a.pos]), \
+                          ' '.join([format(x, '.2f') for x in f.b.pos]),\
+                          ' '.join([format(x, '.2f') for x in f.c.pos])
+
+                a_index, b_index, c_index = all_verts.index(a), all_verts.index(b), all_verts.index(c)
+                obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
 
 
 # use poly-based BFS to grow polygon soup into connected meshes
 def group_triangles(unassigned_faces):
     meshes = set()
+    fs = list(unassigned_faces)
     while unassigned_faces:
         m = Mesh()
-        search_queue = {unassigned_faces[0]}
+        init_face = unassigned_faces[0]
+        search_queue = {init_face}
 
         while search_queue:
             face = search_queue.pop()
-            face.find_neighbours(unassigned_faces)
+            face.find_neighbours(fs)
 
             for n in face.nbs:
                 if n not in m.faces:
@@ -147,6 +198,7 @@ def group_triangles(unassigned_faces):
                     search_queue.add(n)
                     unassigned_faces.remove(n)
 
+        m.faces.add(init_face)
         meshes.add(m)
 
     return meshes
@@ -194,7 +246,7 @@ if __name__ == '__main__':
 
     # read geometry data from .obj file
     start_time = time.perf_counter()
-    raw_geometry = parse_obj('./obj/bk_soup.obj')
+    raw_geometry = parse_obj('./obj/cube_soup.obj')
     print(f'Read .obj file in {time.perf_counter() - start_time:.3f}s')
 
     # create objects from raw geometry
@@ -207,8 +259,8 @@ if __name__ == '__main__':
     start_time = time.perf_counter()
     joined_meshes = group_triangles(faces)
     print(f'Joined meshes in {time.perf_counter() - start_time:.3f}s')
-
-    # fix meshes normals
+    #
+    # # fix meshes normals
     for m in joined_meshes:
         m.conform_normals()
 
