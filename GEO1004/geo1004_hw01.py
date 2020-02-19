@@ -5,7 +5,8 @@
 
 import numpy as np
 import time
-import itertools
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class Vertex:
@@ -43,10 +44,10 @@ class Face:
         return compute_bbox(np.asarray(self.get_vertices()))
 
     def concavity(self, other_face):
-        vertex_a = self.vxs.difference(other_face.vxs).pop()
-        vertex_b = other_face.vxs.difference(self.vxs).pop()
 
-        return np.dot((vertex_b.pos - vertex_a.pos), self.normal())
+        shared_edge = list(self.vxs.union(other_face.vxs))
+
+        return np.dot(other_face.normal(), np.cross(shared_edge[1].pos - shared_edge[0].pos, self.normal()))
 
 
 class Mesh:
@@ -67,15 +68,19 @@ class Mesh:
 
             if inter is not None:
                 dist = np.linalg.norm(inter - ray.origin)
-                intersections.append((dist, g))
+                intersections.append((dist, g, inter))
 
         return sorted(intersections, key=lambda x: x[0])
 
     def conform_normals(self):
+        r = 20
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
         init_face = list(self.faces)[0]
         centroid = init_face.centroid()
-        ray_origin = random_points_on_sphere(r=200, n=1)[0] + centroid
-        ray = Ray((centroid - ray_origin), ray_origin)
+        ray_origin = random_points_on_sphere(r=r, n=1)[0] + centroid
+        ray = Ray((centroid - ray_origin)*100, ray_origin)
 
         sorted_intersection = self.ray_cast(ray)
 
@@ -97,30 +102,37 @@ class Mesh:
                 if nb not in processed and nb not in search_queue:
                     search_queue.add(nb)
 
-                    if face.concavity(nb) > 0:
-                        if np.dot(face.normal(), nb.normal()) < 0:
-                            nb.flip()
-
-                    elif face.concavity(nb) < 0:
-                        if np.dot(face.normal(), nb.normal()) > 0:
-                            nb.flip()
-
-                    else:
+                    if np.dot(face.normal(), nb.normal()) == 0:
                         centroid = nb.centroid()
-                        ray_origin = random_points_on_sphere(r=5, n=1)[0] + centroid
+                        ray_origin = random_points_on_sphere(r=r, n=1)[0] + centroid
                         ray = Ray((centroid - ray_origin), ray_origin)
-
                         sorted_intersection = [i[1] for i in self.ray_cast(ray)]
+
+                        # if len(self.ray_cast(ray)) != 2:
+                        #     for i in self.ray_cast(ray):
+                        #         ax.scatter(i[2][0], i[2][1], i[2][2], c='red')
 
                         # check if normal is correct, otherwise flips the face
                         if sorted_intersection.index(nb) % 2 == 0:
-                            if np.dot(ray.direction, nb.normal()) >= 0:
+                            if np.dot(ray.direction, nb.normal()) > 0:
                                 nb.flip()
                         else:
-                            if np.dot(ray.direction, nb.normal()) <= 0:
+                            if np.dot(ray.direction, nb.normal()) < 0:
                                 nb.flip()
 
+                    else:
+                        if np.dot(face.normal(), nb.normal()) < 0:
+                            nb.flip()
+
+                    # elif face.concavity(nb) > 0:
+                    #     print(face.concavity(nb))
+                    #     if np.dot(face.normal(), nb.normal()) < 0:
+                    #         nb.flip()
+
             processed.add(face)
+
+
+        plt.show()
 
 
 class Ray:
@@ -231,7 +243,7 @@ def ray_intersect(ray, ray_origin, tri, epsilon):
     q = np.cross(s, edge1)
     v = f * np.dot(ray, q)
 
-    if not 0 < v < 1:
+    if v < 0 or u + v > 1.0:
         return None
 
     t = f * np.dot(edge2, q)
