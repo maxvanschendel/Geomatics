@@ -23,25 +23,11 @@ class Vertex:
 class Face:
     def __init__(self, vxs):
         self.a, self.b, self.c = vxs[0], vxs[1], vxs[2]
+        self.edge1, self.edge2 = self.b.pos - self.a.pos, self.c.pos - self.a.pos
         self.vxs = set(vxs)
         self.nbs = set()
 
-    def flip(self):
-        self.a, self.c = self.c, self.a
-
-    def find_neighbours(self, fs):
-        for f in fs:
-            if len(self.vxs.intersection(f.vxs)) == 2 and len(self.nbs) <= 3:
-                self.nbs.add(f)
-
-    def normal(self):
-        return np.cross(self.a.pos - self.b.pos, self.a.pos - self.c.pos)
-
-    def centroid(self):
-        return np.asarray(((self.a.x+self.b.x+self.c.x) / 3,
-                           (self.a.y+self.b.y+self.c.y) / 3,
-                           (self.a.z+self.b.z+self.c.z) / 3))
-
+    # gets the next vertex in the winding order
     def next_vertex(self, vx):
         if vx == self.a:
             return self.b
@@ -50,37 +36,54 @@ class Face:
         elif vx == self.c:
             return self.a
 
-    def get_vertices(self):
-        return [v.pos for v in self.vxs]
+    # flip face by flipping vertex order
+    def flip(self):
+        self.a, self.c = self.c, self.a
+
+    # find at max 3 neighbours from set of faces
+    def find_neighbours(self, fs):
+        for f in fs:
+            if len(self.vxs.intersection(f.vxs)) == 2:
+                self.nbs.add(f)
+            if len(self.nbs) == 3:
+                break
+
+    # face normal vector, vertices are in ccw order a>b>c
+    def normal(self):
+        return np.cross(self.a.pos - self.b.pos, self.a.pos - self.c.pos)
+
+    # average of vertices
+    def centroid(self):
+        return np.asarray(((self.a.x+self.b.x+self.c.x) / 3,
+                           (self.a.y+self.b.y+self.c.y) / 3,
+                           (self.a.z+self.b.z+self.c.z) / 3))
 
     # Möller–Trumbore intersection algorithm
-    def ray_intersect(self, ray, ray_origin, tolerance):
-        edge1 = self.b.pos - self.a.pos
-        edge2 = self.c.pos - self.a.pos
-
-        h = np.cross(ray, edge2)
-        a = np.dot(edge1, h)
+    # Python port of C++ implementation on Wikipedia
+    def ray_intersect(self, ray, tolerance):
+        h = np.cross(ray.direction, self.edge2)
+        a = np.dot(self.edge1, h)
 
         if -tolerance < a < tolerance:
             return None
 
         f = 1 / a
-        s = ray_origin - self.a.pos
+        s = ray.origin - self.a.pos
         u = f * np.dot(s, h)
 
         if u < 0 or u > 1.0:
             return None
 
-        q = np.cross(s, edge1)
-        v = f * np.dot(ray, q)
+        q = np.cross(s, self.edge1)
+        v = f * np.dot(ray.direction, q)
 
         if v < 0 or u + v > 1.0:
             return None
 
-        t = f * np.dot(edge2, q)
+        t = f * np.dot(self.edge2, q)
 
         if t > tolerance:
-            return ray_origin + ray * t
+            return ray.origin + ray.direction * t
         else:
             return None
 
@@ -89,26 +92,27 @@ class Mesh:
     def __init__(self):
         self.faces = set()
 
-    def get_all_vertices(self):
-        return np.concatenate([f.get_vertices() for f in self.faces])
-
+    # compute diagonal of bounding box
     def bbox(self):
-        vxs = self.get_all_vertices()
+        # all vertices in mesh
+        vxs = np.concatenate([[v.pos for v in f.vxs] for f in self.faces])
         x_min, x_max = np.min(vxs[:, 0]), np.max(vxs[:, 0])
         y_min, y_max = np.min(vxs[:, 1]), np.max(vxs[:, 1])
         z_min, z_max = np.min(vxs[:, 2]), np.max(vxs[:, 2])
 
         return np.array((x_min, y_min, z_min)), np.array((x_max, y_max, z_max))
 
+    # create random ray from large sphere around mesh in direction of a face's centroid
     def random_external_ray(self, focus, scale):
         # get bbox diagonal size
         bbox = self.bbox()
         radius = np.linalg.norm(bbox[0] - bbox[1])
 
-        # casts random ray with origin on a large sphere centered on the face's centroid
+        # generate random point on unit sphere
         p = np.random.normal(size=(1, 3))
         p /= np.linalg.norm(p, axis=1)[:, np.newaxis]
 
+        # move sphere origin to centroid and calculate ray vector
         ray_origin = (p * radius * scale)[0] + focus
         ray_direction = (focus - ray_origin)
 
@@ -118,7 +122,7 @@ class Mesh:
     def ray_cast(self, ray):
         intersections = []
         for g in self.faces:
-            inter = g.ray_intersect(ray.direction, ray.origin, 0.0001)
+            inter = g.ray_intersect(ray, 0.0001)
 
             if inter is not None:
                 dist = np.linalg.norm(inter - ray.origin)
@@ -126,8 +130,28 @@ class Mesh:
 
         return sorted(intersections, key=lambda x: x[0])
 
+    # fixes mesh so that every face's normal points outwards
+    def conform_normals(self, scale):
+        # cast random ray from environment at centroid of random face
+        init_face = next(iter(self.faces))
+        ray = self.random_external_ray(init_face.centroid(), scale)
+        intersections = self.ray_cast(ray)
+
+        # check if normal orientation is correct relative to ray, otherwise flip face
+        for i in enumerate(intersections):
+            if i[0] % 2 == 0:
+                if np.dot(ray.direction, i[1][1].normal()) >= 0:
+                    i[1][1].flip()
+            else:
+                if np.dot(ray.direction, i[1][1].normal()) <= 0:
+                    i[1][1].flip()
+
+        # walk mesh, enforcing winding order for every face/neighbour pair
+        self.walk(intersections[0][1], self.enforce_winding)
+
     # walk mesh faces in BFS order, applies function to every face/neighbour pair
-    def walk(self, init, func):
+    @staticmethod
+    def walk(init, func):
         processed = set()
         search_queue = {init}
 
@@ -141,35 +165,18 @@ class Mesh:
             processed.add(face)
 
     # checks if a face's neighbour's winding order is correct and modifies it if it isn't
-    def enforce_winding(self, face, nb):
+    @staticmethod
+    def enforce_winding(face, nb):
         for v in face.vxs.intersection(nb.vxs):
             if face.next_vertex(v) == nb.next_vertex(v):
                 nb.flip()
-
-    # fixes mesh so that every face's normal points outwards
-    def conform_normals(self, scale):
-        init_face = next(iter(self.faces))
-
-        ray = self.random_external_ray(init_face.centroid(), scale)
-        intersections = self.ray_cast(ray)
-
-        # check if normal orientation is correct relative to ray, otherwise flips face
-        for i in enumerate(intersections):
-            if i[0] % 2 == 0:
-                if np.dot(ray.direction, i[1][1].normal()) >= 0:
-                    i[1][1].flip()
-            else:
-                if np.dot(ray.direction, i[1][1].normal()) <= 0:
-                    i[1][1].flip()
-
-        # walk mesh, enforcing winding order for every face/neighbour pair
-        self.walk(intersections[0][1], self.enforce_winding)
 
 
 class ObjParser:
     def __init__(self, fn):
         self.fn = fn
 
+    # read .obj file
     def read(self):
         with open(self.fn) as obj_file:
             lines = [i.replace('\n', '').split(' ') for i in obj_file.readlines()]
@@ -184,6 +191,7 @@ class ObjParser:
 
         return vxs, fs
 
+    # write .obj file
     def write(self, meshes, out):
         all_verts = []
 
