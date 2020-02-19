@@ -258,7 +258,7 @@ if __name__ == '__main__':
 
     # read geometry data from .obj file
     start_time = time.perf_counter()
-    raw_geometry = parse_obj('./obj/cube_soup.obj')
+    raw_geometry = parse_obj('./obj/bk_soup.obj')
     print(f'Read .obj file in {time.perf_counter() - start_time:.3f}s')
 
     # create objects from raw geometry
@@ -271,8 +271,8 @@ if __name__ == '__main__':
     start_time = time.perf_counter()
     joined_meshes = group_triangles(faces)
     print(f'Joined meshes in {time.perf_counter() - start_time:.3f}s')
-    #
-    # # fix meshes normals
+
+    # fix meshes normals
     for m in joined_meshes:
         m.conform_normals()
 
