@@ -4,8 +4,9 @@
 
 
 import numpy as np
+from sys import argv
+from copy import deepcopy
 import time
-import sys
 
 
 class Ray:
@@ -13,10 +14,47 @@ class Ray:
         self.direction = direction
         self.origin = origin
 
+    # Möller–Trumbore ray intersection
+    def intersect(self, face, tolerance):
+        h = np.cross(self.direction, face.edge2)
+        a = np.dot(face.edge1, h)
+
+        if -tolerance < a < tolerance:
+            return None
+
+        f = 1 / a
+        s = self.origin - face.a.pos
+        u = f * np.dot(s, h)
+
+        if u < 0 or u > 1.0:
+            return None
+
+        q = np.cross(s, face.edge1)
+        v = f * np.dot(self.direction, q)
+
+        if v < 0 or u + v > 1.0:
+            return None
+
+        t = f * np.dot(face.edge2, q)
+
+        if t > tolerance:
+            return self.origin + self.direction * t
+        else:
+            return None
+
+    # casts a ray through the mesh and returns all intersecting triangles
+    def cast(self, mesh):
+        intersections = []
+        for g in mesh.faces:
+            inter = self.intersect(g, 0.0001)
+            if inter is not None:
+                intersections.append((np.linalg.norm(inter - self.origin), g, inter))
+
+        return sorted(intersections, key=lambda x: x[0])
+
 
 class Vertex:
     def __init__(self, coords):
-        self.x, self.y, self.z = coords[0], coords[1], coords[2]
         self.pos = np.asarray(coords)
 
 
@@ -43,10 +81,12 @@ class Face:
     # find at max 3 neighbours from set of faces
     def find_neighbours(self, fs):
         for f in fs:
-            if len(self.vxs.intersection(f.vxs)) == 2:
-                self.nbs.add(f)
-            if len(self.nbs) == 3:
-                break
+            if len(f.nbs) < 3:
+                if len(self.vxs.intersection(f.vxs)) == 2:
+                    self.nbs.add(f)
+                    f.nbs.add(self)
+                if len(self.nbs) == 3:
+                    break
 
     # face normal vector, vertices are in ccw order a>b>c
     def normal(self):
@@ -54,38 +94,7 @@ class Face:
 
     # average of vertices
     def centroid(self):
-        return np.asarray(((self.a.x+self.b.x+self.c.x) / 3,
-                           (self.a.y+self.b.y+self.c.y) / 3,
-                           (self.a.z+self.b.z+self.c.z) / 3))
-
-    # Möller–Trumbore intersection algorithm
-    # Python port of C++ implementation on Wikipedia
-    def ray_intersect(self, ray, tolerance):
-        h = np.cross(ray.direction, self.edge2)
-        a = np.dot(self.edge1, h)
-
-        if -tolerance < a < tolerance:
-            return None
-
-        f = 1 / a
-        s = ray.origin - self.a.pos
-        u = f * np.dot(s, h)
-
-        if u < 0 or u > 1.0:
-            return None
-
-        q = np.cross(s, self.edge1)
-        v = f * np.dot(ray.direction, q)
-
-        if v < 0 or u + v > 1.0:
-            return None
-
-        t = f * np.dot(self.edge2, q)
-
-        if t > tolerance:
-            return ray.origin + ray.direction * t
-        else:
-            return None
+        return (self.a.pos + self.b.pos + self.c.pos)/3
 
 
 class Mesh:
@@ -96,14 +105,12 @@ class Mesh:
     def bbox(self):
         # all vertices in mesh
         vxs = np.concatenate([[v.pos for v in f.vxs] for f in self.faces])
-        x_min, x_max = np.min(vxs[:, 0]), np.max(vxs[:, 0])
-        y_min, y_max = np.min(vxs[:, 1]), np.max(vxs[:, 1])
-        z_min, z_max = np.min(vxs[:, 2]), np.max(vxs[:, 2])
 
-        return np.array((x_min, y_min, z_min)), np.array((x_max, y_max, z_max))
+        return np.array((np.min(vxs[:, 0]), np.min(vxs[:, 1]), np.min(vxs[:, 2]))), \
+            np.array((np.max(vxs[:, 0]), np.max(vxs[:, 1]), np.max(vxs[:, 2])))
 
     # create random ray from large sphere around mesh in direction of a face's centroid
-    def random_external_ray(self, focus, scale):
+    def random_external_ray(self, focus):
         # get bbox diagonal size
         bbox = self.bbox()
         radius = np.linalg.norm(bbox[0] - bbox[1])
@@ -113,29 +120,17 @@ class Mesh:
         p /= np.linalg.norm(p, axis=1)[:, np.newaxis]
 
         # move sphere origin to centroid and calculate ray vector
-        ray_origin = (p * radius * scale)[0] + focus
+        ray_origin = (p * radius)[0] + focus
         ray_direction = (focus - ray_origin)
 
         return Ray(ray_direction, ray_origin)
 
-    # casts a ray through the mesh and returns all intersecting triangles
-    def ray_cast(self, ray):
-        intersections = []
-        for g in self.faces:
-            inter = g.ray_intersect(ray, 0.0001)
-
-            if inter is not None:
-                dist = np.linalg.norm(inter - ray.origin)
-                intersections.append((dist, g, inter))
-
-        return sorted(intersections, key=lambda x: x[0])
-
     # fixes mesh so that every face's normal points outwards
-    def conform_normals(self, scale):
+    def conform_normals(self):
         # cast random ray from environment at centroid of random face
         init_face = next(iter(self.faces))
-        ray = self.random_external_ray(init_face.centroid(), scale)
-        intersections = self.ray_cast(ray)
+        ray = self.random_external_ray(init_face.centroid())
+        intersections = ray.cast(self)
 
         # check if normal orientation is correct relative to ray, otherwise flip face
         for i in enumerate(intersections):
@@ -155,6 +150,7 @@ class Mesh:
         processed = set()
         search_queue = {init}
 
+        # exhaustively traverse mesh
         while search_queue:
             face = search_queue.pop()
             for nb in face.nbs:
@@ -172,15 +168,40 @@ class Mesh:
                 nb.flip()
 
 
+class PolygonSoup:
+    def __init__(self, faces):
+        self.faces = faces
+
+    # grow polygon soup into connected meshes
+    def merge(self):
+        unassigned_faces = deepcopy(self.faces)
+        meshes = set()
+
+        while unassigned_faces:
+            m = Mesh()
+            init_face = unassigned_faces[0]
+            search_queue = {init_face}
+
+            while search_queue:
+                face = search_queue.pop()
+                face.find_neighbours(unassigned_faces)
+
+                for n in face.nbs:
+                    if n not in m.faces:
+                        m.faces.add(n)
+                        search_queue.add(n)
+                        unassigned_faces.remove(n)
+
+            m.faces.add(init_face)
+            meshes.add(m)
+
+        return meshes
+
+
 class ObjParser:
-    def __init__(self, fn):
-        self.fn = fn
-
-    # read .obj file
-    def read(self):
-        with open(self.fn) as obj_file:
-            lines = [i.replace('\n', '').split(' ') for i in obj_file.readlines()]
-
+    @staticmethod
+    def read(fn):
+        lines = [i.replace('\n', '').split(' ') for i in open(fn).readlines()]
         vxs, fs = [], []
 
         for i in lines:
@@ -191,11 +212,11 @@ class ObjParser:
 
         return vxs, fs
 
-    # write .obj file
-    def write(self, meshes, out):
+    @staticmethod
+    def write(output_meshes, out):
         all_verts = []
 
-        for m in meshes:
+        for m in output_meshes:
             faces = list(m.faces)
             vertices = list(set().union(*[i.vxs for i in faces]))
 
@@ -206,76 +227,42 @@ class ObjParser:
             for v in all_verts:
                 obj_file.write(f'v {v}\n')
 
-            for m in enumerate(meshes):
+            for m in enumerate(output_meshes):
                 faces = list(m[1].faces)
-                obj_file.write(f'o {m[0]+1}\n')
+                obj_file.write(f'o {m[0] + 1}\n')
 
                 for f in faces:
                     a, b, c = ' '.join([format(x, '.2f') for x in f.a.pos]), \
-                              ' '.join([format(x, '.2f') for x in f.b.pos]),\
+                              ' '.join([format(x, '.2f') for x in f.b.pos]), \
                               ' '.join([format(x, '.2f') for x in f.c.pos])
 
                     a_index, b_index, c_index = all_verts.index(a), all_verts.index(b), all_verts.index(c)
                     obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
 
 
-# grow polygon soup into connected meshes
-def merge_soup(unassigned_faces):
-    meshes = set()
-    fs = list(unassigned_faces)
-
-    while unassigned_faces:
-        m = Mesh()
-        init_face = unassigned_faces[0]
-        search_queue = {init_face}
-
-        while search_queue:
-            face = search_queue.pop()
-            face.find_neighbours(fs)
-
-            for n in face.nbs:
-                if n not in m.faces:
-                    m.faces.add(n)
-                    search_queue.add(n)
-                    unassigned_faces.remove(n)
-
-        m.faces.add(init_face)
-        meshes.add(m)
-
-    return meshes
-
-
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        input_file, output_file = sys.argv[1], sys.argv[2]
+    if len(argv) > 1:
+        input_file, output_file = argv[1], argv[2]
     else:
         input_file, output_file = 'bk_soup.obj', 'output.obj'
 
     # read geometry data from .obj file
-    start_time = time.perf_counter()
-
-    parser = ObjParser(input_file)
-    raw_geometry = parser.read()
-    print(f'Read .obj file in {time.perf_counter() - start_time:.3f}s')
+    raw_geometry = ObjParser.read(input_file)
 
     # create objects from raw geometry
-    start_time = time.perf_counter()
     vertices = [Vertex(i) for i in raw_geometry[0]]
-    faces = [Face((vertices[i[0]], vertices[i[1]], vertices[i[2]])) for i in raw_geometry[1]]
-    print(f'Created objects in {time.perf_counter() - start_time:.3f}s')
+
+
+    polygon_soup = PolygonSoup([Face((vertices[i[0]], vertices[i[1]], vertices[i[2]])) for i in raw_geometry[1]])
+
 
     # join meshes by growing seed faces using BFS
-    start_time = time.perf_counter()
-    meshes = merge_soup(faces)
-    print(f'Joined meshes in {time.perf_counter() - start_time:.3f}s')
-
+    start_time = time.clock()
+    meshes = polygon_soup.merge()
+    print(start_time - time.clock())
     # fix meshes normals
-    start_time = time.perf_counter()
     for m in meshes:
-        m.conform_normals(scale=2.5)
-    print(f'Conformed normals in {time.perf_counter() - start_time:.3f}s')
+        m.conform_normals()
 
     # write obj file to disk
-    start_time = time.perf_counter()
-    parser.write(meshes, output_file)
-    print(f'Written .obj file to disk in {time.perf_counter() - start_time:.3f}s')
+    ObjParser.write(meshes, output_file)
