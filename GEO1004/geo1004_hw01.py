@@ -221,7 +221,7 @@ class ObjParser:
             vertices = list(set().union(*[i.vxs for i in faces]))
 
             for i in vertices:
-                all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
+                all_verts.append(' '.join([format(x, '.6f') for x in i.pos]))
 
         with open(out, 'w') as obj_file:
             for v in all_verts:
@@ -232,12 +232,11 @@ class ObjParser:
                 obj_file.write(f'o {m[0] + 1}\n')
 
                 for f in faces:
-                    a, b, c = ' '.join([format(x, '.2f') for x in f.a.pos]), \
-                              ' '.join([format(x, '.2f') for x in f.b.pos]), \
-                              ' '.join([format(x, '.2f') for x in f.c.pos])
-
+                    a, b, c = ' '.join([format(x, '.6f') for x in f.a.pos]),' '.join([format(x, '.6f') for x in f.b.pos]),' '.join([format(x, '.6f') for x in f.c.pos])
                     a_index, b_index, c_index = all_verts.index(a), all_verts.index(b), all_verts.index(c)
                     obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
+
+
 
 
 if __name__ == '__main__':
@@ -251,15 +250,11 @@ if __name__ == '__main__':
 
     # create objects from raw geometry
     vertices = [Vertex(i) for i in raw_geometry[0]]
-
-
     polygon_soup = PolygonSoup([Face((vertices[i[0]], vertices[i[1]], vertices[i[2]])) for i in raw_geometry[1]])
 
-
-    # join meshes by growing seed faces using BFS
-    start_time = time.clock()
+    # join meshes by growing seed faces using BFS  
     meshes = polygon_soup.merge()
-    print(start_time - time.clock())
+
     # fix meshes normals
     for m in meshes:
         m.conform_normals()
