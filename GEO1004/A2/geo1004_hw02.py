@@ -6,6 +6,8 @@
 import numpy as np
 from multiprocessing import Pool
 from sys import argv
+from timeit import default_timer as timer
+import itertools
 
 
 # Ray object with direction and origin, can calculate intersection with face
@@ -36,7 +38,7 @@ class Ray:
 
         t = f * np.dot(face.edge2, q)
         if t > tolerance:
-            return self.origin + self.direction * t
+            return self.origin + (self.direction * t)
 
     def ray_box_intersect(self, bbox):
         t = (bbox[0] - self.origin)/self.direction
@@ -51,15 +53,15 @@ class Ray:
             return tmin
 
     # casts a ray through the scene and returns all intersecting triangles
-    def cast(self, scene):
+    def cast(self, scene, tolerance):
         intersections = []
-        for mesh in scene:
-            if self.ray_box_intersect(mesh.bbox):
+        for mesh in scene.meshes:
+            if self.ray_box_intersect(mesh.bbox()):
                 for g in mesh.faces:
-                    if self.ray_box_intersect(g.bbox):
-                        inter = self.ray_triangle_intersect(g, 0.0001)
-                        if inter is not None:
-                            intersections.append((np.linalg.norm(inter - self.origin), g, inter))
+
+                    inter = self.ray_triangle_intersect(g, tolerance)
+                    if inter is not None:
+                        intersections.append((np.linalg.norm(inter - self.origin), g, inter))
 
         return sorted(intersections, key=lambda x: x[0])
 
@@ -75,6 +77,7 @@ class Face:
     def __init__(self, vxs, parent=None):
         self.parent = parent
         self.a, self.b, self.c = vxs[0], vxs[1], vxs[2]
+        self.edge1, self.edge2 = self.b.pos - self.a.pos, self.c.pos - self.a.pos
 
         self.vxs = np.array([v.pos for v in vxs])   # triangle as 3x3 matrix
         self.bbox = np.array([np.min(self.vxs, axis=0), np.max(self.vxs, axis=0)])  # min/max of each column
@@ -84,6 +87,7 @@ class Mesh:
     def __init__(self, mesh_id):
         self.id = mesh_id
         self.faces = set()
+        self.mat = None
 
     def bbox(self):
         face_bboxes = np.concatenate([f.bbox for f in self.faces], axis=0)  # all vertices in mesh
@@ -98,17 +102,20 @@ class Point:
 
 
 class PointCloud:
-    def __init__(self, bbox, cell_size):
-        self.bbox = bbox
-        self.shape = (((self.bbox[1] - self.bbox[0]) // cell_size) + 1).astype(np.int8)
+    def __init__(self):
         self.points = {}
+
+    def write_xyz(self, fn):
+        with open(fn, 'w+') as file:
+            for i in self.points:
+                file.write(f'{i[0]} {i[1]} {i[2]}\n')
 
 
 # reads and writes obj files
 class ObjParser:
     @staticmethod
     def read(fn):
-        vxs, meshes = [], []
+        vxs, meshes = [], set()
         mesh = Mesh(None)
 
         for i in [i.replace('\n', '').split(' ') for i in open(fn).readlines()]:
@@ -121,7 +128,7 @@ class ObjParser:
                                     parent=mesh))
             elif i[0] == 'o':
                 mesh = Mesh(i[1])
-                meshes.append(mesh)
+                meshes.add(mesh)
 
             elif i[0] == 'usemtl':
                 mesh.mat = i[1]
@@ -163,12 +170,55 @@ class ObjParser:
 
 class Scene:
     def __init__(self):
-        self.meshes = set()
-        self.point_clouds = set()
+        self.meshes = None
 
     def mesh_bbox_union(self):
         bboxes = np.concatenate([m.bbox() for m in self.meshes])
         return np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)])
+
+    def voxelize(self, cell_size, ray_tolerance=0.00001):
+
+        bbox = self.mesh_bbox_union()
+        point_cloud = PointCloud()
+
+        # get voxel grid shape and define direction of rays
+        shape = (((bbox[1] - bbox[0]) // cell_size) + 1).astype(np.int8)
+        print(shape)
+        # cast rays from bbox face with smallest area
+        # min_face = np.argmin([abs(shape[0]*shape[1]), abs(shape[1]*shape[2]), abs(shape[0]*shape[2])])
+        # direction = [0, 0, 0]
+        # direction[min_face-1] = 1
+
+        direction = np.array([0, 0, 1])
+        ray_transform = np.array([cell_size / 2, cell_size / 2, 0.])
+
+        # cast a ray from every cell in the bounding box's smallest face
+        for i in np.arange(0, shape[0], np.sign(shape[0])):
+
+            for j in np.arange(0, shape[1], np.sign(shape[1])):
+
+                # convert voxel grid coordinates to world coordinates
+                ray_origin = bbox[0] + \
+                    np.array([i*cell_size*np.sign(shape[0]),
+                              j*cell_size*np.sign(shape[1]),
+                              -cell_size]) \
+                    + ray_transform
+
+                # cast ray and find intersections in order of distance
+                ray = Ray(direction, ray_origin)
+                intersections = ray.cast(self, ray_tolerance)
+
+                # fill lines between every two subsequent intersections
+                for z in range(0, len(intersections), 2):
+                    dist = intersections[z+1][0] - intersections[z][0]
+
+                    for d in np.arange(0, dist, cell_size):
+                        point_cloud.points[(ray_origin[0],
+                                            ray_origin[1],
+                                            ray_origin[2] + intersections[z][0] + d)] \
+                            = intersections[z][1].parent.mat
+            print(i, j)
+        return point_cloud
 
 
 if __name__ == '__main__':
@@ -179,9 +229,16 @@ if __name__ == '__main__':
 
     # read geometry data from .obj file and create necessary geometry objects
     scene = Scene()
-    scene.meshes.add(ObjParser.read(input_file))
-    scene.point_clouds.add(PointCloud(bbox=scene.mesh_bbox_union(), cell_size=10))
+    scene.meshes = ObjParser.read(input_file)
 
-    # works but is very slow
-    ObjParser.write(scene, 'out.obj')
+    start = timer()
+    voxelized_scene = scene.voxelize(cell_size=5, ray_tolerance=0.001)
+    end = timer()
+
+    print(end-start)
+    voxelized_scene.write_xyz('pc.xyz')
+
+    # # works but is very slow
+    # ObjParser.write(scene, 'out.obj')
+
 
