@@ -55,13 +55,12 @@ class Ray:
     # casts a ray through the scene and returns all intersecting triangles
     def cast(self, scene, tolerance):
         intersections = []
-        for mesh in scene.meshes:
-            if self.ray_box_intersect(mesh.bbox()):
-                for g in mesh.faces:
 
-                    inter = self.ray_triangle_intersect(g, tolerance)
-                    if inter is not None:
-                        intersections.append((np.linalg.norm(inter - self.origin), g, inter))
+        for mesh in filter(lambda x: self.ray_box_intersect(x.bbox), scene.meshes):
+            for face in mesh.faces:
+                inter = self.ray_triangle_intersect(face, tolerance)
+                if inter is not None:
+                    intersections.append((np.linalg.norm(inter - self.origin), face, inter))
 
         return sorted(intersections, key=lambda x: x[0])
 
@@ -88,11 +87,11 @@ class Mesh:
         self.id = mesh_id
         self.faces = set()
         self.mat = None
+        self.bbox = None
 
-    def bbox(self):
+    def get_bbox(self):
         face_bboxes = np.concatenate([f.bbox for f in self.faces], axis=0)  # all vertices in mesh
-
-        return np.array([np.min(face_bboxes[::2], axis=0), np.max(face_bboxes[1::2], axis=0)])
+        self.bbox = np.array([np.min(face_bboxes[::2], axis=0), np.max(face_bboxes[1::2], axis=0)]) # min/max of all vertices
 
 
 class Point:
@@ -137,6 +136,8 @@ class ObjParser:
         if not len(meshes):
             meshes = [mesh]
 
+        [m.get_bbox() for m in meshes]
+
         return meshes
 
     @staticmethod
@@ -173,7 +174,7 @@ class Scene:
         self.meshes = None
 
     def mesh_bbox_union(self):
-        bboxes = np.concatenate([m.bbox() for m in self.meshes])
+        bboxes = np.concatenate([m.bbox for m in self.meshes])
         return np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)])
 
     def voxelize(self, cell_size, ray_tolerance=0.00001):
@@ -183,7 +184,7 @@ class Scene:
 
         # get voxel grid shape and define direction of rays
         shape = (((bbox[1] - bbox[0]) // cell_size) + 1).astype(np.int8)
-        print(shape)
+
         # cast rays from bbox face with smallest area
         # min_face = np.argmin([abs(shape[0]*shape[1]), abs(shape[1]*shape[2]), abs(shape[0]*shape[2])])
         # direction = [0, 0, 0]
@@ -194,7 +195,6 @@ class Scene:
 
         # cast a ray from every cell in the bounding box's smallest face
         for i in np.arange(0, shape[0], np.sign(shape[0])):
-
             for j in np.arange(0, shape[1], np.sign(shape[1])):
 
                 # convert voxel grid coordinates to world coordinates
@@ -217,7 +217,7 @@ class Scene:
                                             ray_origin[1],
                                             ray_origin[2] + intersections[z][0] + d)] \
                             = intersections[z][1].parent.mat
-            print(i, j)
+
         return point_cloud
 
 
@@ -225,14 +225,14 @@ if __name__ == '__main__':
     if len(argv) > 1:
         input_file, output_file = argv[1], argv[2]
     else:
-        input_file, output_file = '../obj/bag_bk.obj', 'output.obj'
+        input_file, output_file = '../obj/isolated_cubes.obj', 'output.obj'
 
     # read geometry data from .obj file and create necessary geometry objects
     scene = Scene()
     scene.meshes = ObjParser.read(input_file)
 
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=5, ray_tolerance=0.001)
+    voxelized_scene = scene.voxelize(cell_size=0.2, ray_tolerance=0.001)
     end = timer()
 
     print(end-start)
