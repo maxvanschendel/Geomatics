@@ -149,7 +149,7 @@ class Scene:
         point_cloud = PointCloud()
 
         # get voxel grid shape and define direction of rays
-        shape = (((bbox.extent[1] - bbox.extent[0]) // cell_size) + 1).astype(np.int16)
+        shape = (((bbox.extent[1] - bbox.extent[0]) // cell_size) + 1).astype(np.int32)
 
         # cast rays from bbox face with smallest area
         min_face = bbox.min_area_plane()
@@ -182,7 +182,7 @@ class Scene:
         print(shape)
         for m in self.meshes:
             for f in m.faces:
-                tri_bbox = np.floor((f.bbox.extent - bbox.extent[0]) / cell_size).astype(np.int16)
+                tri_bbox = np.floor((f.bbox.extent - bbox.extent[0]) / cell_size).astype(np.int32)
                 for j in range(tri_bbox[0][j_ind], tri_bbox[1][j_ind] + 1):
                     for i in range(tri_bbox[0][i_ind], tri_bbox[1][i_ind] + 1):
                         seads_grid[i][j].append(f)
@@ -280,7 +280,7 @@ if __name__ == '__main__':
     scene.meshes = ObjParser.read(input_file)
 
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=5, thread_count=16, ray_tolerance=0.001)
+    voxelized_scene = scene.voxelize(cell_size=1, thread_count=16, ray_tolerance=0.001)
     end = timer()
 
     print(end-start)
