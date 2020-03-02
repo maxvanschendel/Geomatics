@@ -4,8 +4,7 @@
 
 
 import numpy as np
-from multiprocessing import Pool, Manager, Array
-from multiprocessing.managers import BaseManager
+from multiprocessing import Pool
 from sys import argv
 from timeit import default_timer as timer
 from copy import deepcopy
@@ -39,8 +38,9 @@ class Ray:
             return None
 
         t = f * np.dot(face.edge2, q)
+
         if t > tolerance:
-            return self.origin + (self.direction * t)
+            return t
 
     def ray_box_intersect(self, bbox):
         t = (bbox.extent[0] - self.origin)/self.direction
@@ -56,12 +56,8 @@ class Ray:
 
     # casts a ray through the scene and returns all intersecting triangles
     def cast(self, tolerance, faces):
-        intersections = []
-
-        for face in faces:
-            inter = self.ray_triangle_intersect(face, tolerance)
-            if inter is not None:
-                intersections.append((np.linalg.norm(inter - self.origin), face, inter))
+        casts = [(self.ray_triangle_intersect(f, tolerance), f) for f in faces]
+        intersections = [x for x in casts if x[0] is not None]
 
         return sorted(intersections, key=lambda x: x[0])
 
@@ -117,21 +113,12 @@ class PointCloud:
 
 
 def voxelize_worker(args):
-    coord_world = deepcopy(args[2])
-    coord_world[args[3]] *= args[0]
-    coord_world[args[4]] *= args[1]
+    args[2][args[3]] *= args[0]
+    args[2][args[4]] *= args[1]
 
-    print(args[0], args[1])
-    # convert voxel grid coordinates to world coordinates
-    ray_origin = args[5] + coord_world
+    ray = Ray(args[6], args[5] + args[2])
 
-    # cast ray and find intersections in order of distance
-    ray = Ray(args[6], ray_origin)
-
-    # only check faces that lie in the line of the ray
-    faces = args[8]
-
-    return ray, ray.cast(args[7], iter(faces))
+    return ray, ray.cast(args[7], args[8])
 
 
 class Scene:
@@ -176,10 +163,9 @@ class Scene:
             i_ind, j_ind, k_ind = 0, 2, 1
             sign_mult = np.array([cell_size*np.sign(i_dim), -cell_size, cell_size*np.sign(j_dim)])
 
-        print('Constructing SEADS grid')
+        print('- Constructing SEADS grid')
         seads_grid = [[[] for j in range(j_dim)] for i in range(i_dim)]
 
-        print(shape)
         for m in self.meshes:
             for f in m.faces:
                 tri_bbox = np.floor((f.bbox.extent - bbox.extent[0]) / cell_size).astype(np.int32)
@@ -187,16 +173,22 @@ class Scene:
                     for i in range(tri_bbox[0][i_ind], tri_bbox[1][i_ind] + 1):
                         seads_grid[i][j].append(f)
 
+        print('- Preparing arguments')
         cells = product(np.arange(0, i_dim, np.sign(i_dim)), np.arange(0, j_dim, np.sign(j_dim)))
+        arguments = [(i[0], i[1],
+                      deepcopy(sign_mult),
+                      i_ind, j_ind,
+                      ray_transform,
+                      direction,
+                      ray_tolerance,
+                      iter(seads_grid[i[0]][i[1]])) for i in cells]
 
-        print('Preparing arguments')
-        arguments = [(i[0], i[1], sign_mult, i_ind, j_ind, ray_transform, direction, ray_tolerance, iter(seads_grid[i[0]][i[1]])) for i in cells]
-
-        print('Voxelizing')
+        print('- Casting rays')
         p = Pool(thread_count)
         intersections = p.map(voxelize_worker, arguments, chunksize=int((i_dim * j_dim) / thread_count))
         p.close()
 
+        print('- Building point cloud')
         for ray, inter in intersections:
             if len(inter) > 1 and len(inter) % 2 == 0:
                 for z in range(0, len(inter), 2):
@@ -206,6 +198,11 @@ class Scene:
                         cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
                         cell[k_ind] += inter[z][0] + d
                         point_cloud.points[tuple(cell)] = inter[z][1].parent.mat
+
+            elif inter:
+                cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
+                cell[k_ind] += inter[0][0]
+                point_cloud.points[tuple(cell)] = inter[0][1].parent.mat
 
         return point_cloud
 
@@ -270,17 +267,20 @@ class ObjParser:
 
 
 if __name__ == '__main__':
+
     if len(argv) > 1:
         input_file, output_file = argv[1], argv[2]
     else:
-        input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
+        input_file, output_file = '../obj/bag_bk.obj', 'output.obj'
 
     # read geometry data from .obj file and create necessary geometry objects
+    print('Reading .obj file')
     scene = Scene()
     scene.meshes = ObjParser.read(input_file)
 
+    print('Voxelizing scene')
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=10, thread_count=16, ray_tolerance=0.001)
+    voxelized_scene = scene.voxelize(cell_size=1, thread_count=6, ray_tolerance=0.0000001)
     end = timer()
 
     print(end-start)
