@@ -280,7 +280,7 @@ if __name__ == '__main__':
     scene.meshes = ObjParser.read(input_file)
 
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=1, thread_count=16, ray_tolerance=0.001)
+    voxelized_scene = scene.voxelize(cell_size=10, thread_count=16, ray_tolerance=0.001)
     end = timer()
 
     print(end-start)
