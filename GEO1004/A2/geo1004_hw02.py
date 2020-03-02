@@ -7,7 +7,8 @@ import numpy as np
 from multiprocessing import Pool
 from sys import argv
 from timeit import default_timer as timer
-import itertools
+from copy import deepcopy
+from itertools import product
 
 
 # Ray object with direction and origin, can calculate intersection with face
@@ -94,12 +95,6 @@ class Mesh:
         self.bbox = np.array([np.min(face_bboxes[::2], axis=0), np.max(face_bboxes[1::2], axis=0)]) # min/max of all vertices
 
 
-class Point:
-    def __init__(self, pos, meta):
-        self.pos = pos
-        self.meta = meta
-
-
 class PointCloud:
     def __init__(self):
         self.points = {}
@@ -107,7 +102,92 @@ class PointCloud:
     def write_xyz(self, fn):
         with open(fn, 'w+') as file:
             for i in self.points:
-                file.write(f'{i[0]} {i[1]} {i[2]}\n')
+                file.write(f'{i[0]} {i[1]} {i[2]} {self.points[i]}\n')
+
+
+class Scene:
+    def __init__(self):
+        self.meshes = None
+
+    def mesh_bbox_union(self):
+        bboxes = np.concatenate([m.bbox for m in self.meshes])
+        return np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)])
+
+    def cast_horizontal_ray(self, sign_mult, i_ind, j_ind, i, j, ray_transform, direction, ray_tolerance):
+        coord_world = deepcopy(sign_mult)
+        coord_world[i_ind] *= i
+        coord_world[j_ind] *= j
+
+        # convert voxel grid coordinates to world coordinates
+        ray_origin = ray_transform + coord_world
+
+        # cast ray and find intersections in order of distance
+        ray = Ray(direction, ray_origin)
+        return ray, ray.cast(self, ray_tolerance)
+
+    def voxelize(self, cell_size, ray_tolerance=0.00001):
+
+        bbox = self.mesh_bbox_union()
+        point_cloud = PointCloud()
+
+        # get voxel grid shape and define direction of rays
+        shape = (((bbox[1] - bbox[0]) // cell_size) + 1).astype(np.int16)
+        # cast rays from bbox face with smallest area
+        print(shape)
+        # xy, yz, xz
+        min_face = np.argmin([abs(shape[0]*shape[1]), abs(shape[1]*shape[2]), abs(shape[0]*shape[2])])
+
+        if min_face == 0:
+            direction = np.array([0, 0, 1])
+            ray_transform = bbox[0] + np.array([cell_size / 2, cell_size / 2, 0.])
+            i_dim, j_dim = shape[0], shape[1]
+            i_ind, j_ind, k_ind = 0, 1, 2
+
+            sign_mult = np.array([cell_size*np.sign(i_dim), cell_size*np.sign(j_dim), -cell_size])
+
+        elif min_face == 1:
+            direction = np.array([1, 0, 0])
+            ray_transform = bbox[0] + np.array([0, cell_size / 2, cell_size / 2])
+            i_dim, j_dim = shape[1], shape[2]
+            i_ind, j_ind, k_ind = 1, 2, 0
+            sign_mult = np.array([-cell_size, cell_size*np.sign(i_dim), cell_size*np.sign(j_dim)])
+
+        else:
+            direction = np.array([0, 1, 0])
+            ray_transform = bbox[0] + np.array([cell_size / 2, 0, cell_size / 2])
+            i_dim, j_dim = shape[0], shape[2]
+            i_ind, j_ind, k_ind = 0, 2, 1
+            sign_mult = np.array([cell_size*np.sign(i_dim), -cell_size, cell_size*np.sign(j_dim)])
+
+        # direction = np.array([0, 0, 1])
+        # ray_transform = np.array([cell_size / 2, cell_size / 2, 0.])
+
+        p = Pool(8)
+        print(i_ind, j_ind)
+        # cast a ray from every cell in the bounding box's smallest face
+        for i, j in product(np.arange(0, i_dim, np.sign(i_dim)), np.arange(0, j_dim, np.sign(j_dim))):
+            print(i,j)
+            coord_world = deepcopy(sign_mult)
+            coord_world[i_ind] *= i
+            coord_world[j_ind] *= j
+
+            # convert voxel grid coordinates to world coordinates
+            ray_origin = ray_transform + coord_world
+
+            # cast ray and find intersections in order of distance
+            ray = Ray(direction, ray_origin)
+            intersections = ray.cast(self, ray_tolerance)
+
+            # fill lines between every two subsequent intersections
+            for z in range(0, len(intersections), 2):
+                dist = intersections[z+1][0] - intersections[z][0]
+
+                for d in np.arange(0, dist, cell_size):
+                    cell = [ray_origin[0], ray_origin[1], ray_origin[2]]
+                    cell[k_ind] += intersections[z][0] + d
+                    point_cloud.points[tuple(cell)] = intersections[z][1].parent.mat
+
+        return point_cloud
 
 
 # reads and writes obj files
@@ -169,70 +249,18 @@ class ObjParser:
                     obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
 
 
-class Scene:
-    def __init__(self):
-        self.meshes = None
-
-    def mesh_bbox_union(self):
-        bboxes = np.concatenate([m.bbox for m in self.meshes])
-        return np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)])
-
-    def voxelize(self, cell_size, ray_tolerance=0.00001):
-
-        bbox = self.mesh_bbox_union()
-        point_cloud = PointCloud()
-
-        # get voxel grid shape and define direction of rays
-        shape = (((bbox[1] - bbox[0]) // cell_size) + 1).astype(np.int8)
-
-        # cast rays from bbox face with smallest area
-        # min_face = np.argmin([abs(shape[0]*shape[1]), abs(shape[1]*shape[2]), abs(shape[0]*shape[2])])
-        # direction = [0, 0, 0]
-        # direction[min_face-1] = 1
-
-        direction = np.array([0, 0, 1])
-        ray_transform = np.array([cell_size / 2, cell_size / 2, 0.])
-
-        # cast a ray from every cell in the bounding box's smallest face
-        for i in np.arange(0, shape[0], np.sign(shape[0])):
-            for j in np.arange(0, shape[1], np.sign(shape[1])):
-
-                # convert voxel grid coordinates to world coordinates
-                ray_origin = bbox[0] + \
-                    np.array([i*cell_size*np.sign(shape[0]),
-                              j*cell_size*np.sign(shape[1]),
-                              -cell_size]) \
-                    + ray_transform
-
-                # cast ray and find intersections in order of distance
-                ray = Ray(direction, ray_origin)
-                intersections = ray.cast(self, ray_tolerance)
-
-                # fill lines between every two subsequent intersections
-                for z in range(0, len(intersections), 2):
-                    dist = intersections[z+1][0] - intersections[z][0]
-
-                    for d in np.arange(0, dist, cell_size):
-                        point_cloud.points[(ray_origin[0],
-                                            ray_origin[1],
-                                            ray_origin[2] + intersections[z][0] + d)] \
-                            = intersections[z][1].parent.mat
-
-        return point_cloud
-
-
 if __name__ == '__main__':
     if len(argv) > 1:
         input_file, output_file = argv[1], argv[2]
     else:
-        input_file, output_file = '../obj/isolated_cubes.obj', 'output.obj'
+        input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
 
     # read geometry data from .obj file and create necessary geometry objects
     scene = Scene()
     scene.meshes = ObjParser.read(input_file)
 
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=0.2, ray_tolerance=0.001)
+    voxelized_scene = scene.voxelize(cell_size=10, ray_tolerance=0.001)
     end = timer()
 
     print(end-start)
