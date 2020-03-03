@@ -19,25 +19,27 @@ class Ray:
 
     # Möller–Trumbore ray intersection:
     def ray_triangle_intersect(self, face, tolerance):
-        h = np.cross(self.direction, face.edge2)
-        a = np.dot(face.edge1, h)
+        edge1, edge2 = face[1] - face[0], face[2] - face[0]
+
+        h = np.cross(self.direction, edge2)
+        a = np.dot(edge1, h)
 
         if -tolerance < a < tolerance:
             return None
 
-        f, s = 1 / a, self.origin - face.a.pos
+        f, s = 1 / a, self.origin - face[0]
         u = f * np.dot(s, h)
 
         if u < 0 or u > 1.0:
             return None
 
-        q = np.cross(s, face.edge1)
+        q = np.cross(s, edge1)
         v = f * np.dot(self.direction, q)
 
         if v < 0 or u + v > 1.0:
             return None
 
-        t = f * np.dot(face.edge2, q)
+        t = f * np.dot(edge2, q)
 
         if t > tolerance:
             return t
@@ -56,7 +58,7 @@ class Ray:
 
     # casts a ray through the scene and returns all intersecting triangles
     def cast(self, tolerance, faces):
-        casts = [(self.ray_triangle_intersect(f, tolerance), f) for f in faces]
+        casts = [(self.ray_triangle_intersect(f.vxs, tolerance), f) for f in faces]
         intersections = [x for x in casts if x[0] is not None]
 
         return sorted(intersections, key=lambda x: x[0])
@@ -109,7 +111,9 @@ class PointCloud:
     def write_xyz(self, fn):
         with open(fn, 'w+') as file:
             for i in self.points:
-                file.write(f'{i[0]} {i[1]} {i[2]} {self.points[i]}\n')
+                nomat = ''
+                file.write(f'{i[0]:.2f} {i[1]:.2f} {i[2]:.2f} '
+                           f'{self.points[i] if self.points[i] is not None else nomat}\n')
 
 
 def voxelize_worker(args):
@@ -130,7 +134,7 @@ class Scene:
         return Bbox(np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)]))
 
     # parallel voxelizer
-    def voxelize(self, cell_size, thread_count, ray_tolerance=0.00001):
+    def voxelize(self, cell_size, process_count, ray_tolerance=0.00001):
 
         bbox = self.mesh_bbox_union()
         point_cloud = PointCloud()
@@ -140,6 +144,7 @@ class Scene:
 
         # cast rays from bbox face with smallest area
         min_face = bbox.min_area_plane()
+        min_face = 0
 
         direction = np.array([0, 0, 0])
         step_size = np.array([cell_size / 2, cell_size / 2, cell_size / 2])
@@ -181,27 +186,31 @@ class Scene:
                       ray_transform,
                       direction,
                       ray_tolerance,
-                      iter(seads_grid[i[0]][i[1]])) for i in cells]
+                      seads_grid[i[0]][i[1]]) for i in cells]
 
         print('- Casting rays')
-        p = Pool(thread_count)
-        intersections = p.map(voxelize_worker, arguments, chunksize=int((i_dim * j_dim) / thread_count))
+        p = Pool(process_count)
+        intersections = p.map(voxelize_worker, arguments, chunksize=int((i_dim * j_dim) / process_count))
         p.close()
+        p.join()
 
         print('- Building point cloud')
+        # convert ray intersections to point cloud
         for ray, inter in intersections:
             if len(inter) > 1 and len(inter) % 2 == 0:
                 for z in range(0, len(inter), 2):
                     dist = inter[z+1][0] - inter[z][0]
 
+                    # add voxel at every cell between the two intersections
                     for d in np.arange(0, dist, cell_size):
                         cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                        cell[k_ind] += inter[z][0] + d
+                        cell[k_ind] += int(round((inter[z][0] + d) / cell_size))*cell_size
                         point_cloud.points[tuple(cell)] = inter[z][1].parent.mat
 
             elif inter:
+                # add single voxel at single intersection
                 cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                cell[k_ind] += inter[0][0]
+                cell[k_ind] += round(inter[0][0] / cell_size)*cell_size
                 point_cloud.points[tuple(cell)] = inter[0][1].parent.mat
 
         return point_cloud
@@ -217,11 +226,9 @@ class ObjParser:
         for i in [i.replace('\n', '').split(' ') for i in open(fn).readlines()]:
             if i[0] == 'v':
                 vxs.append(Vertex(np.asarray([float(i) for i in i[1:]])))
-
             elif i[0] == 'f':
                 vx_ind = [int(i) - 1 for i in i[1:]]
-                mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]],
-                                    parent=mesh))
+                mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
             elif i[0] == 'o':
                 mesh = Mesh(i[1])
                 meshes.add(mesh)
@@ -271,7 +278,7 @@ if __name__ == '__main__':
     if len(argv) > 1:
         input_file, output_file = argv[1], argv[2]
     else:
-        input_file, output_file = '../obj/bag_bk.obj', 'output.obj'
+        input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
 
     # read geometry data from .obj file and create necessary geometry objects
     print('Reading .obj file')
@@ -280,10 +287,9 @@ if __name__ == '__main__':
 
     print('Voxelizing scene')
     start = timer()
-    voxelized_scene = scene.voxelize(cell_size=1, thread_count=6, ray_tolerance=0.0000001)
-    end = timer()
+    voxelized_scene = scene.voxelize(cell_size=1, process_count=6, ray_tolerance=0.0000001)
+    print(timer() - start)
 
-    print(end-start)
     voxelized_scene.write_xyz('pc.xyz')
 
     # # works but is very slow
