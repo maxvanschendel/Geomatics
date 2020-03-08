@@ -6,7 +6,6 @@
 import numpy as np
 from multiprocessing import Pool
 from sys import argv
-from timeit import default_timer as timer
 from copy import deepcopy
 from itertools import product
 
@@ -45,8 +44,8 @@ class Ray:
             return t
 
     def ray_box_intersect(self, bbox):
-        t = (bbox.extent[0] - self.origin)/self.direction
-        k = (bbox.extent[1] - self.origin)/self.direction
+        t = (bbox.extent[0] - self.origin) / self.direction
+        k = (bbox.extent[1] - self.origin) / self.direction
 
         tmin = np.max([np.max([np.min([t[0], k[0]]), np.min([t[1], k[1]])]), np.min([t[2], k[2]])])
         tmax = np.min([np.min([np.max([t[0], k[0]]), np.max([t[1], k[1]])]), np.max([t[2], k[2]])])
@@ -77,12 +76,12 @@ class Face:
         self.a, self.b, self.c = vxs[0], vxs[1], vxs[2]
         self.edge1, self.edge2 = self.b.pos - self.a.pos, self.c.pos - self.a.pos
 
-        self.vxs = np.array([v.pos for v in vxs])   # triangle as 3x3 matrix
+        self.vxs = np.array([v.pos for v in vxs])  # triangle as 3x3 matrix
         self.bbox = Bbox(np.array([np.min(self.vxs, axis=0), np.max(self.vxs, axis=0)]))  # min/max of each column
 
 
 class Mesh:
-    def __init__(self, mesh_id):
+    def __init__(self, mesh_id=None):
         self.id = mesh_id
         self.faces = set()
         self.mat = None
@@ -99,9 +98,9 @@ class Bbox:
 
     # xy, yz, xz
     def min_area_plane(self):
-        return np.argmin([abs(self.extent[0][0]*self.extent[1][0]),
-                          abs(self.extent[0][1]*self.extent[1][1]),
-                          abs(self.extent[0][2]*self.extent[1][2])])
+        return np.argmin([abs(self.extent[0][0] * self.extent[1][0]),
+                          abs(self.extent[0][1] * self.extent[1][1]),
+                          abs(self.extent[0][2] * self.extent[1][2])])
 
 
 class PointCloud:
@@ -125,16 +124,49 @@ def voxelize_worker(args):
     return ray, ray.cast(args[7], args[8])
 
 
+class Box:
+    def __init__(self, dim, pos):
+        self.dim = dim
+        self.pos = pos
+        self.mesh = self.box_mesh()
+
+    def box_mesh(self):
+        mesh = Mesh()
+        vxs = []
+
+        vertex_connectivity = [(0, 2, 1), (1, 2, 3),
+                               (2, 7, 3), (2, 6, 7),
+                               (3, 7, 1), (5, 1, 7),
+                               (6, 4, 5), (6, 5, 7),
+                               (4, 0, 1), (4, 1, 5),
+                               (2, 0, 4), (6, 2, 4)]
+
+        for v in product([-1, 1], repeat=3):
+            vxs.append(Vertex(np.array([self.pos[0] + self.dim[0] / 2 * v[0],
+                                        self.pos[1] + self.dim[1] / 2 * v[1],
+                                        self.pos[2] + self.dim[2] / 2 * v[2]])))
+
+        fs = []
+
+        for v in vertex_connectivity:
+            fs.append([vxs[v[2]], vxs[v[1]], vxs[v[0]]])
+
+        for f in fs:
+            mesh.faces.add(Face(f))
+
+        return mesh
+
+
 class Scene:
-    def __init__(self):
-        self.meshes = None
+    def __init__(self, meshes=None):
+        self.meshes = meshes
 
     def mesh_bbox_union(self):
         bboxes = np.concatenate([m.bbox.extent for m in self.meshes])
         return Bbox(np.array([np.min(bboxes[::2], axis=0), np.max(bboxes[1::2], axis=0)]))
 
     # parallel voxelizer
-    def voxelize(self, cell_size, process_count, ray_tolerance=0.00001):
+    def voxelize(self, cell_size, process_count, epsilon=0.00001):
 
         bbox = self.mesh_bbox_union()
         point_cloud = PointCloud()
@@ -142,81 +174,80 @@ class Scene:
         # get voxel grid shape and define direction of rays
         shape = (((bbox.extent[1] - bbox.extent[0]) // cell_size) + 1).astype(np.int32)
 
-        # cast rays from bbox face with smallest area
-        min_face = bbox.min_area_plane()
-        min_face = 0
+        # cast rays from x, y, z axes
+        for axis in [0, 1, 2]:
+            direction = np.array([0, 0, 0])
+            step_size = np.array([cell_size / 2, cell_size / 2, cell_size / 2])
 
-        direction = np.array([0, 0, 0])
-        step_size = np.array([cell_size / 2, cell_size / 2, cell_size / 2])
+            step_size[axis - 1] = 0
+            ray_transform = step_size + bbox.extent[0]
+            direction[axis - 1] = 1
 
-        step_size[min_face - 1] = 0
-        ray_transform = step_size + bbox.extent[0]
-        direction[min_face - 1] = 1
+            if axis == 0:
+                i_dim, j_dim = shape[0], shape[1]
+                i_ind, j_ind, k_ind = 0, 1, 2
+                sign_mult = np.array([cell_size * np.sign(i_dim), cell_size * np.sign(j_dim), -cell_size])
 
-        if min_face == 0:
-            i_dim, j_dim = shape[0], shape[1]
-            i_ind, j_ind, k_ind = 0, 1, 2
-            sign_mult = np.array([cell_size*np.sign(i_dim), cell_size*np.sign(j_dim), -cell_size])
+            elif axis == 1:
+                i_dim, j_dim = shape[1], shape[2]
+                i_ind, j_ind, k_ind = 1, 2, 0
+                sign_mult = np.array([-cell_size, cell_size * np.sign(i_dim), cell_size * np.sign(j_dim)])
 
-        elif min_face == 1:
-            i_dim, j_dim = shape[1], shape[2]
-            i_ind, j_ind, k_ind = 1, 2, 0
-            sign_mult = np.array([-cell_size, cell_size*np.sign(i_dim), cell_size*np.sign(j_dim)])
+            else:
+                i_dim, j_dim = shape[0], shape[2]
+                i_ind, j_ind, k_ind = 0, 2, 1
+                sign_mult = np.array([cell_size * np.sign(i_dim), -cell_size, cell_size * np.sign(j_dim)])
 
-        else:
-            i_dim, j_dim = shape[0], shape[2]
-            i_ind, j_ind, k_ind = 0, 2, 1
-            sign_mult = np.array([cell_size*np.sign(i_dim), -cell_size, cell_size*np.sign(j_dim)])
+            seads_grid = [[[] for j in range(j_dim)] for i in range(i_dim)]
 
-        print('- Constructing SEADS grid')
-        seads_grid = [[[] for j in range(j_dim)] for i in range(i_dim)]
+            for m in self.meshes:
+                for f in m.faces:
+                    tri_bbox = np.floor((f.bbox.extent - bbox.extent[0]) / cell_size).astype(np.int32)
+                    for j in range(tri_bbox[0][j_ind], tri_bbox[1][j_ind] + 1):
+                        for i in range(tri_bbox[0][i_ind], tri_bbox[1][i_ind] + 1):
+                            seads_grid[i][j].append(f)
 
-        for m in self.meshes:
-            for f in m.faces:
-                tri_bbox = np.floor((f.bbox.extent - bbox.extent[0]) / cell_size).astype(np.int32)
-                for j in range(tri_bbox[0][j_ind], tri_bbox[1][j_ind] + 1):
-                    for i in range(tri_bbox[0][i_ind], tri_bbox[1][i_ind] + 1):
-                        seads_grid[i][j].append(f)
+            cells = product(np.arange(0, i_dim, np.sign(i_dim)), np.arange(0, j_dim, np.sign(j_dim)))
+            arguments = [(i[0], i[1],
+                          deepcopy(sign_mult),
+                          i_ind, j_ind,
+                          ray_transform,
+                          direction,
+                          epsilon,
+                          seads_grid[i[0]][i[1]]) for i in cells]
 
-        print('- Preparing arguments')
-        cells = product(np.arange(0, i_dim, np.sign(i_dim)), np.arange(0, j_dim, np.sign(j_dim)))
-        arguments = [(i[0], i[1],
-                      deepcopy(sign_mult),
-                      i_ind, j_ind,
-                      ray_transform,
-                      direction,
-                      ray_tolerance,
-                      seads_grid[i[0]][i[1]]) for i in cells]
+            p = Pool(process_count)
+            intersections = p.map(voxelize_worker, arguments, chunksize=int((i_dim * j_dim) / process_count))
+            p.close()
+            p.join()
 
-        print('- Casting rays')
-        p = Pool(process_count)
-        intersections = p.map(voxelize_worker, arguments, chunksize=int((i_dim * j_dim) / process_count))
-        p.close()
-        p.join()
+            # convert ray intersections to point cloud
+            for ray, inter in intersections:
+                # add voxel at every cell between the two intersections
+                if len(inter) > 1 and len(inter) % 2 == 0:
+                    for z in range(0, len(inter), 2):
+                        dist = inter[z + 1][0] - inter[z][0]
 
-        print('- Building point cloud')
-        # convert ray intersections to point cloud
-        for ray, inter in intersections:
-            if len(inter) > 1 and len(inter) % 2 == 0:
-                for z in range(0, len(inter), 2):
-                    dist = inter[z+1][0] - inter[z][0]
+                        for d in np.arange(0, dist, cell_size):
+                            cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
+                            cell[k_ind] += int(round((inter[z][0] + d) / cell_size)) * cell_size + (cell_size/2)
+                            point_cloud.points[tuple(cell)] = inter[z][1].parent.mat
 
-                    # add voxel at every cell between the two intersections
-                    for d in np.arange(0, dist, cell_size):
-                        cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                        cell[k_ind] += int(round((inter[z][0] + d) / cell_size))*cell_size
-                        point_cloud.points[tuple(cell)] = inter[z][1].parent.mat
-
-            elif inter:
                 # add single voxel at single intersection
-                cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                cell[k_ind] += round(inter[0][0] / cell_size)*cell_size
-                point_cloud.points[tuple(cell)] = inter[0][1].parent.mat
+                elif inter:
+                    cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
+                    cell[k_ind] += round(inter[0][0] / cell_size) * cell_size + (cell_size/2)
+                    point_cloud.points[tuple(cell)] = inter[0][1].parent.mat
 
-        return point_cloud
+        # create voxel mesh from point cloud
+        meshes = set()
+        for x in point_cloud.points:
+            meshes.add(Box((cell_size, cell_size, cell_size), x).mesh)
+
+        return meshes
 
 
-# reads and writes obj files
+# reads and writes obj files to and
 class ObjParser:
     @staticmethod
     def read(fn):
@@ -240,6 +271,7 @@ class ObjParser:
         if not len(meshes):
             meshes = [mesh]
 
+        meshes = {m for m in meshes if len(m.faces)}
         [m.get_bbox() for m in meshes]
 
         return meshes
@@ -249,14 +281,19 @@ class ObjParser:
         all_verts = []
         output_meshes = scene.meshes
 
-        for m in output_meshes:
-            faces = list(m.faces)
-            vertices = list(set().union(*[(i.a, i.b, i.c) for i in faces]))
-
-            for i in vertices:
-                all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
-
+        # write to obj file
         with open(out, 'w') as obj_file:
+            # create vertex strings and keep track of their index for faces
+            vertex_indices, vcur = {}, 0
+            for m in output_meshes:
+                faces = list(m.faces)
+                vertices = list(set().union(*[(i.a, i.b, i.c) for i in faces]))
+
+                for i in vertices:
+                    all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
+                    vertex_indices[i] = vcur
+                    vcur += 1
+
             for v in all_verts:
                 obj_file.write(f'v {v}\n')
 
@@ -265,34 +302,24 @@ class ObjParser:
                 obj_file.write(f'o {m[0] + 1}\n')
 
                 for f in faces:
-                    a, b, c = ' '.join([format(x, '.2f') for x in f.a.pos]), \
-                              ' '.join([format(x, '.2f') for x in f.b.pos]), \
-                              ' '.join([format(x, '.2f') for x in f.c.pos])
-
-                    a_index, b_index, c_index = all_verts.index(a), all_verts.index(b), all_verts.index(c)
+                    a_index, b_index, c_index = vertex_indices[f.a], vertex_indices[f.b], vertex_indices[f.c]
                     obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
 
 
 if __name__ == '__main__':
-
     if len(argv) > 1:
         input_file, output_file = argv[1], argv[2]
     else:
         input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
 
+    input_geo = Scene()
+
     # read geometry data from .obj file and create necessary geometry objects
     print('Reading .obj file')
-    scene = Scene()
-    scene.meshes = ObjParser.read(input_file)
+    input_geo.meshes = ObjParser.read(input_file)
 
     print('Voxelizing scene')
-    start = timer()
-    voxelized_scene = scene.voxelize(cell_size=1, process_count=6, ray_tolerance=0.0000001)
-    print(timer() - start)
+    voxels = Scene(input_geo.voxelize(cell_size=1, process_count=6, epsilon=0.0000001))
 
-    voxelized_scene.write_xyz('pc.xyz')
-
-    # # works but is very slow
-    # ObjParser.write(scene, 'out.obj')
-
-
+    print('Writing obj')
+    ObjParser.write(voxels, 'out.obj')
