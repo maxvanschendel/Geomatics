@@ -17,13 +17,14 @@ class Ray:
         self.origin = origin
 
     # Möller–Trumbore ray intersection:
-    def ray_triangle_intersect(self, face, tolerance):
+    # Python implementation of C++ code on Wikipedia
+    def ray_triangle_intersect(self, face, epsilon):
         edge1, edge2 = face[1] - face[0], face[2] - face[0]
 
         h = np.cross(self.direction, edge2)
         a = np.dot(edge1, h)
 
-        if -tolerance < a < tolerance:
+        if -epsilon < a < epsilon:
             return None
 
         f, s = 1 / a, self.origin - face[0]
@@ -40,7 +41,7 @@ class Ray:
 
         t = f * np.dot(edge2, q)
 
-        if t > tolerance:
+        if t > epsilon:
             return t
 
     def ray_box_intersect(self, bbox):
@@ -96,12 +97,6 @@ class Bbox:
     def __init__(self, extent):
         self.extent = extent
 
-    # xy, yz, xz
-    def min_area_plane(self):
-        return np.argmin([abs(self.extent[0][0] * self.extent[1][0]),
-                          abs(self.extent[0][1] * self.extent[1][1]),
-                          abs(self.extent[0][2] * self.extent[1][2])])
-
 
 class PointCloud:
     def __init__(self):
@@ -118,16 +113,16 @@ class PointCloud:
 def voxelize_worker(args):
     args[2][args[3]] *= args[0]
     args[2][args[4]] *= args[1]
-
     ray = Ray(args[6], args[5] + args[2])
 
     return ray, ray.cast(args[7], args[8])
 
 
 class Box:
-    def __init__(self, dim, pos):
+    def __init__(self, dim, pos, mat=None):
         self.dim = dim
         self.pos = pos
+        self.mat = mat
         self.mesh = self.box_mesh()
 
     def box_mesh(self):
@@ -154,12 +149,15 @@ class Box:
         for f in fs:
             mesh.faces.add(Face(f))
 
+        mesh.mat = self.mat
+
         return mesh
 
 
 class Scene:
-    def __init__(self, meshes=None):
+    def __init__(self, meshes=None, mtllib=None):
         self.meshes = meshes
+        self.mtllib = mtllib
 
     def mesh_bbox_union(self):
         bboxes = np.concatenate([m.bbox.extent for m in self.meshes])
@@ -179,9 +177,8 @@ class Scene:
             direction = np.array([0, 0, 0])
             step_size = np.array([cell_size / 2, cell_size / 2, cell_size / 2])
 
-            step_size[axis - 1] = 0
+            step_size[axis - 1], direction[axis - 1]= 0, 1
             ray_transform = step_size + bbox.extent[0]
-            direction[axis - 1] = 1
 
             if axis == 0:
                 i_dim, j_dim = shape[0], shape[1]
@@ -198,6 +195,7 @@ class Scene:
                 i_ind, j_ind, k_ind = 0, 2, 1
                 sign_mult = np.array([cell_size * np.sign(i_dim), -cell_size, cell_size * np.sign(j_dim)])
 
+            # spatially enumerated auxilliary data structure
             seads_grid = [[[] for j in range(j_dim)] for i in range(i_dim)]
 
             for m in self.meshes:
@@ -207,6 +205,7 @@ class Scene:
                         for i in range(tri_bbox[0][i_ind], tri_bbox[1][i_ind] + 1):
                             seads_grid[i][j].append(f)
 
+            # prepare arguments for parellel processes
             cells = product(np.arange(0, i_dim, np.sign(i_dim)), np.arange(0, j_dim, np.sign(j_dim)))
             arguments = [(i[0], i[1],
                           deepcopy(sign_mult),
@@ -242,9 +241,9 @@ class Scene:
         # create voxel mesh from point cloud
         meshes = set()
         for x in point_cloud.points:
-            meshes.add(Box((cell_size, cell_size, cell_size), x).mesh)
+            meshes.add(Box(dim=(cell_size, cell_size, cell_size), pos=x, mat=point_cloud.points[x]).mesh)
 
-        return meshes
+        return Scene(meshes, self.mtllib)
 
 
 # reads and writes obj files to and
@@ -253,19 +252,33 @@ class ObjParser:
     def read(fn):
         vxs, meshes = [], set()
         mesh = Mesh(None)
+        mtllib = None
 
         for i in [i.replace('\n', '').split(' ') for i in open(fn).readlines()]:
             if i[0] == 'v':
                 vxs.append(Vertex(np.asarray([float(i) for i in i[1:]])))
             elif i[0] == 'f':
-                vx_ind = [int(i) - 1 for i in i[1:]]
-                mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
+                # extract vertices froms tring
+                vx_ind = [int(i.split('/')[0]) - 1 for i in i[1:]]
+
+                # simple triangle face
+                if len(vx_ind) == 3:
+                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
+
+                # split quad into two tris
+                elif len(vx_ind) == 4:
+                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
+                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[2]], vxs[vx_ind[3]]], parent=mesh))
+
             elif i[0] == 'o':
                 mesh = Mesh(i[1])
                 meshes.add(mesh)
 
             elif i[0] == 'usemtl':
                 mesh.mat = i[1]
+
+            elif i[0] == 'mtllib':
+                mtllib = i[1]
 
         # if file doesnt use mesh id
         if not len(meshes):
@@ -274,7 +287,7 @@ class ObjParser:
         meshes = {m for m in meshes if len(m.faces)}
         [m.get_bbox() for m in meshes]
 
-        return meshes
+        return Scene(meshes, mtllib)
 
     @staticmethod
     def write(scene, out):
@@ -283,6 +296,9 @@ class ObjParser:
 
         # write to obj file
         with open(out, 'w') as obj_file:
+            if scene.mtllib:
+                obj_file.write(f'mtllib {scene.mtllib}\n')
+
             # create vertex strings and keep track of their index for faces
             vertex_indices, vcur = {}, 0
             for m in output_meshes:
@@ -300,6 +316,8 @@ class ObjParser:
             for m in enumerate(output_meshes):
                 faces = list(m[1].faces)
                 obj_file.write(f'o {m[0] + 1}\n')
+                if m[1].mat:
+                    obj_file.write(f'usemtl {m[1].mat}\n')
 
                 for f in faces:
                     a_index, b_index, c_index = vertex_indices[f.a], vertex_indices[f.b], vertex_indices[f.c]
@@ -312,14 +330,12 @@ if __name__ == '__main__':
     else:
         input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
 
-    input_geo = Scene()
-
     # read geometry data from .obj file and create necessary geometry objects
     print('Reading .obj file')
-    input_geo.meshes = ObjParser.read(input_file)
+    input_geo = ObjParser.read(input_file)
 
     print('Voxelizing scene')
-    voxels = Scene(input_geo.voxelize(cell_size=1, process_count=6, epsilon=0.0000001))
+    voxels = input_geo.voxelize(cell_size=1, process_count=6, epsilon=0.0000001)
 
     print('Writing obj')
     ObjParser.write(voxels, 'out.obj')
