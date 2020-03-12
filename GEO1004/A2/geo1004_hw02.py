@@ -71,21 +71,35 @@ class Vertex:
 
 
 # triangle consisting of 3 vertices, contains pointers to neighbouring faces
-class Face:
+class Tri:
     def __init__(self, vxs, parent=None):
         self.parent = parent
         self.a, self.b, self.c = vxs[0], vxs[1], vxs[2]
         self.edge1, self.edge2 = self.b.pos - self.a.pos, self.c.pos - self.a.pos
 
-        self.vxs = np.array([v.pos for v in vxs])  # triangle as 3x3 matrix
+        self.vxs = np.array([v.pos for v in vxs])
         self.bbox = Bbox(np.array([np.min(self.vxs, axis=0), np.max(self.vxs, axis=0)]))  # min/max of each column
+
+    def get_vertices(self):
+        return self.a, self.b, self.c
+
+
+class Quad:
+    def __init__(self, vxs, parent=None):
+        self.parent = parent
+
+        self.vxs = np.array([v.pos for v in vxs])
+        self.a, self.b, self.c, self.d = vxs[0], vxs[1], vxs[2], vxs[3]
+
+    def get_vertices(self):
+        return self.a, self.b, self.c, self.d
 
 
 class Mesh:
-    def __init__(self, mesh_id=None):
+    def __init__(self, mesh_id=None, mat=None):
         self.id = mesh_id
         self.faces = set()
-        self.mat = None
+        self.mat = mat
         self.bbox = None
 
     def get_bbox(self):
@@ -96,6 +110,13 @@ class Mesh:
 class Bbox:
     def __init__(self, extent):
         self.extent = extent
+
+
+class Point:
+    def __init__(self, pos, mat=None):
+        self.nbs = [None for i in range(27)]
+        self.pos = pos
+        self.mat = mat
 
 
 class PointCloud:
@@ -118,38 +139,48 @@ def voxelize_worker(args):
     return ray, ray.cast(args[7], args[8])
 
 
-class Box:
-    def __init__(self, dim, pos, mat=None):
+class Voxel:
+    def __init__(self, dim, pos, vertices, point=None):
         self.dim = dim
         self.pos = pos
-        self.mat = mat
-        self.mesh = self.box_mesh()
+        self.point = point
+        self.mat = point.mat
+        self.nbs = point.nbs
+        self.mesh = self.box_mesh(vertices)
 
-    def box_mesh(self):
-        mesh = Mesh()
-        vxs = []
+    def box_mesh(self, vertices):
+        mesh = Mesh(mat=self.mat)
 
-        vertex_connectivity = [(0, 2, 1), (1, 2, 3),
-                               (2, 7, 3), (2, 6, 7),
-                               (3, 7, 1), (5, 1, 7),
-                               (6, 4, 5), (6, 5, 7),
-                               (4, 0, 1), (4, 1, 5),
-                               (2, 0, 4), (6, 2, 4)]
+        nb6 = [self.nbs[4], self.nbs[10], self.nbs[12], self.nbs[13], self.nbs[15], self.nbs[21]]
+        nbs_connectivity = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1], [0, 1, 0], [1, 0, 0]])
 
-        for v in product([-1, 1], repeat=3):
-            vxs.append(Vertex(np.array([self.pos[0] + self.dim[0] / 2 * v[0],
-                                        self.pos[1] + self.dim[1] / 2 * v[1],
-                                        self.pos[2] + self.dim[2] / 2 * v[2]])))
+        offsets = list(product([-self.dim[0]/2, self.dim[0]/2], repeat=2))
+        off_axes = ((1, 2), (0, 2), (0, 1), (1, 0), (2, 0), (2, 1))
 
-        fs = []
+        for n in enumerate(nb6):
+            if not n[1]:
+                quad_vertices = []
+                face_centroid = self.pos + nbs_connectivity[n[0]].astype(float) / 2
+                axis2, axis3 = off_axes[n[0]][0], off_axes[n[0]][1]
 
-        for v in vertex_connectivity:
-            fs.append([vxs[v[2]], vxs[v[1]], vxs[v[0]]])
+                for v in offsets:
+                    vertex = deepcopy(face_centroid)
+                    vertex[axis2] += v[0]
+                    vertex[axis3] += v[1]
 
-        for f in fs:
-            mesh.faces.add(Face(f))
+                    vtup = tuple(vertex)
+                    if vtup not in vertices:
+                        vx_object = Vertex(vertex)
+                        quad_vertices.append(vx_object)
+                        vertices[vtup] = vx_object
 
-        mesh.mat = self.mat
+                    else:
+                        quad_vertices.append(vertices[vtup])
+
+                mesh.faces.add(Quad(quad_vertices))
+
+            else:
+                n[1].nbs[n[1].nbs.index(self.point)] = None
 
         return mesh
 
@@ -165,7 +196,6 @@ class Scene:
 
     # parallel voxelizer
     def voxelize(self, cell_size, process_count, epsilon=0.00001):
-
         bbox = self.mesh_bbox_union()
         point_cloud = PointCloud()
 
@@ -174,6 +204,7 @@ class Scene:
 
         # cast rays from x, y, z axes
         for axis in [0, 1, 2]:
+            print(f'- Casting rays from axis {axis}')
             direction = np.array([0, 0, 0])
             step_size = np.array([cell_size / 2, cell_size / 2, cell_size / 2])
 
@@ -228,20 +259,35 @@ class Scene:
                         dist = inter[z + 1][0] - inter[z][0]
 
                         for d in np.arange(0, dist, cell_size):
-                            cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                            cell[k_ind] += int(round((inter[z][0] + d) / cell_size)) * cell_size + (cell_size/2)
-                            point_cloud.points[tuple(cell)] = inter[z][1].parent.mat
+                            cell = [ray.origin[0] // cell_size, ray.origin[1] // cell_size, ray.origin[2] // cell_size]
+                            cell[k_ind] += (inter[z][0] + d) // cell_size
+
+                            point_cloud.points[tuple(cell)] = Point(mat=inter[z][1].parent.mat, pos=tuple(cell))
 
                 # add single voxel at single intersection
                 elif inter:
-                    cell = [ray.origin[0], ray.origin[1], ray.origin[2]]
-                    cell[k_ind] += round(inter[0][0] / cell_size) * cell_size + (cell_size/2)
-                    point_cloud.points[tuple(cell)] = inter[0][1].parent.mat
+                    cell = [int(ray.origin[0]/cell_size), int(ray.origin[1]/cell_size), int(ray.origin[2]/cell_size)]
+                    cell[k_ind] += int(round(inter[0][0] / cell_size))
+
+                    point_cloud.points[tuple(cell)] = Point(mat=inter[0][1].parent.mat, pos=tuple(cell))
+
+        # build 26-connectivity
+        print('- Building 26-connectivity')
+        neighbours = [i for i in product([-1, 0, 1], repeat=3) if i != (0, 0, 0)]
+
+        for p in point_cloud.points:
+            for i in enumerate(neighbours):
+                cur_point = point_cloud.points[p]
+                if not cur_point.nbs[i[0]]:
+                    nb = point_cloud.points.get(tuple(map(lambda i, j: i + j, p, i[1])))
+                    cur_point.nbs[i[0]] = nb
 
         # create voxel mesh from point cloud
+        print('- Creating voxel mesh')
         meshes = set()
+        vertices = {}
         for x in point_cloud.points:
-            meshes.add(Box(dim=(cell_size, cell_size, cell_size), pos=x, mat=point_cloud.points[x]).mesh)
+            meshes.add(Voxel(dim=(1, 1, 1), vertices=vertices, pos=x, point=point_cloud.points[x]).mesh)
 
         return Scene(meshes, self.mtllib)
 
@@ -263,12 +309,12 @@ class ObjParser:
 
                 # simple triangle face
                 if len(vx_ind) == 3:
-                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
+                    mesh.faces.add(Tri(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
 
                 # split quad into two tris
                 elif len(vx_ind) == 4:
-                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
-                    mesh.faces.add(Face(vxs=[vxs[vx_ind[0]], vxs[vx_ind[2]], vxs[vx_ind[3]]], parent=mesh))
+                    mesh.faces.add(Tri(vxs=[vxs[vx_ind[0]], vxs[vx_ind[1]], vxs[vx_ind[2]]], parent=mesh))
+                    mesh.faces.add(Tri(vxs=[vxs[vx_ind[0]], vxs[vx_ind[2]], vxs[vx_ind[3]]], parent=mesh))
 
             elif i[0] == 'o':
                 mesh = Mesh(i[1])
@@ -293,49 +339,60 @@ class ObjParser:
     def write(scene, out):
         all_verts = []
         output_meshes = scene.meshes
+        added_verts = {}
 
         # write to obj file
         with open(out, 'w') as obj_file:
             if scene.mtllib:
                 obj_file.write(f'mtllib {scene.mtllib}\n')
 
-            # create vertex strings and keep track of their index for faces
-            vertex_indices, vcur = {}, 0
+            # write vertex strings
+            vxs_i, vcur = {}, 0
             for m in output_meshes:
                 faces = list(m.faces)
-                vertices = list(set().union(*[(i.a, i.b, i.c) for i in faces]))
+                vertices = list(set().union(*[i.get_vertices() for i in faces]))
 
                 for i in vertices:
-                    all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
-                    vertex_indices[i] = vcur
-                    vcur += 1
+                    if i not in added_verts:
+                        all_verts.append(' '.join([format(x, '.2f') for x in i.pos]))
+                        added_verts[i], vxs_i[i] = vcur, vcur
+                        vcur += 1
+                    else:
+                        vxs_i[i] = added_verts[i]
 
-            for v in all_verts:
-                obj_file.write(f'v {v}\n')
+            for vstring in all_verts:
+                obj_file.write(f'v {vstring}\n')
 
+            # write face strings
             for m in enumerate(output_meshes):
                 faces = list(m[1].faces)
-                obj_file.write(f'o {m[0] + 1}\n')
-                if m[1].mat:
-                    obj_file.write(f'usemtl {m[1].mat}\n')
+                if faces:
+                    obj_file.write(f'o {m[0] + 1}\n')
+                    if m[1].mat:
+                        obj_file.write(f'usemtl {m[1].mat}\n')
 
-                for f in faces:
-                    a_index, b_index, c_index = vertex_indices[f.a], vertex_indices[f.b], vertex_indices[f.c]
-                    obj_file.write(f'f {a_index + 1} {b_index + 1} {c_index + 1}\n')
+                    for f in faces:
+                        if type(f) == Tri:
+                            fstring = f'{vxs_i[f.a] + 1} {vxs_i[f.b] + 1} {vxs_i[f.c] + 1}'
+
+                        elif type(f) == Quad:
+                            fstring = f'{vxs_i[f.a] + 1} {vxs_i[f.b]+ 1} {vxs_i[f.d] + 1} {vxs_i[f.c] + 1}'
+
+                        obj_file.write('f ' + fstring + '\n')
 
 
 if __name__ == '__main__':
     if len(argv) > 1:
-        input_file, output_file = argv[1], argv[2]
+        input_file, output_file, cell_size = argv[1], argv[2], argv[3]
     else:
-        input_file, output_file = '../obj/TUDelft_campus.obj', 'output.obj'
+        input_file, output_file, cell_size = '../obj/TUDelft_campus.obj', 'output.obj', 1
 
     # read geometry data from .obj file and create necessary geometry objects
     print('Reading .obj file')
     input_geo = ObjParser.read(input_file)
 
     print('Voxelizing scene')
-    voxels = input_geo.voxelize(cell_size=1, process_count=6, epsilon=0.0000001)
+    voxels = input_geo.voxelize(cell_size=cell_size, process_count=6, epsilon=0.0000001)
 
     print('Writing obj')
     ObjParser.write(voxels, 'out.obj')
